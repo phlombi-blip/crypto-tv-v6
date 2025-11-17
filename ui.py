@@ -4,7 +4,7 @@ import streamlit as st
 from datetime import datetime
 
 # interne Module
-from config import signal_colors, DEFAULT_TIMEFRAME, YEARS_HISTORY
+from config import SIGNAL_COLORS as signal_colors, DEFAULT_TIMEFRAME, YEARS_HISTORY
 from api import (
     fetch_ticker_24h,
     cached_fetch_klines,
