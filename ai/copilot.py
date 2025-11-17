@@ -1,23 +1,47 @@
-from __future__ import annotations
-import pandas as pd
+# ai/copilot.py
 
-# Placeholder – später kannst du hier echte LLM-Aufrufe integrieren.
-# Jetzt geben wir deterministische, sichere Antworten zurück.
+import openai
 
-def ask_copilot(question: str, df: pd.DataFrame | None = None) -> str:
-    if not question or not question.strip():
-        return "Frag mich etwas zum aktuellen Chart (Trend, RSI, Volumen, Zonen etc.)."
+def ask_copilot(question, df, symbol, timeframe):
+    """
+    CoPilot beantwortet Fragen zum Chart.
+    Der DataFrame wird in Textform zusammengefasst.
+    """
 
-    base = "🤖 Copilot: "
-    q = question.lower()
+    if df is None or df.empty:
+        chart_summary = "Keine Daten verfügbar."
+    else:
+        chart_summary = (
+            f"Letzter Close: {df['close'].iloc[-1]:.2f}\n"
+            f"RSI: {df['rsi14'].iloc[-1]:.2f}\n"
+            f"EMA20: {df['ema20'].iloc[-1]:.2f}\n"
+            f"EMA50: {df['ema50'].iloc[-1]:.2f}\n"
+            f"MA200: {df['ma200'].iloc[-1]:.2f}\n"
+        )
 
-    if "trend" in q:
-        return base + "Der Trend wird hauptsächlich über MA200 und die jüngste Steigung beurteilt. Momentan liefert die KI-Sektion oben eine Einschätzung."
-    if "rsi" in q:
-        return base + "RSI 30/70 Marken sind relevant. Achte auf Divergenzen – die Erkennung steht in der KI-Sektion."
-    if "support" in q or "widerstand" in q or "resistance" in q or "support" in q:
-        return base + "Nutze lokale Hochs/Tiefs sowie Bollinger-Midline/EMA50 als dynamische Zonen. Bestätigungen über Volumen helfen."
-    if "volume" in q or "volumen" in q:
-        return base + "Volumenspitzen (x2 oder mehr gegenüber 20er Durchschnitt) deuten oft auf Breakouts oder Exhaustion hin."
+    prompt = f"""
+Du bist ein professioneller Trading-Assistent.
 
-    return base + "Die KI-Zusammenfassung über Trend/Divergenzen/Volumen findest du oberhalb des Charts. Stell mir gern eine spezifischere Frage."
+Symbol: {symbol}
+Timeframe: {timeframe}
+
+Chart-Daten:
+{chart_summary}
+
+Frage des Users:
+{question}
+
+Gib eine klare, präzise und handlungsorientierte Antwort.
+"""
+
+    try:
+        resp = openai.ChatCompletion.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+        )
+        reply = resp["choices"][0]["message"]["content"]
+        return reply
+
+    except Exception as e:
+        return f"❌ Fehler im KI-CoPilot: {str(e)}"
