@@ -4,11 +4,20 @@ import streamlit as st
 from datetime import datetime
 
 # interne Module
-from api import fetch_ticker_24h, cached_fetch_klines, SYMBOLS, TIMEFRAMES, candles_for_history
+from config import signal_colors, DEFAULT_TIMEFRAME, YEARS_HISTORY
+from api import (
+    fetch_ticker_24h,
+    cached_fetch_klines,
+    SYMBOLS,
+    TIMEFRAMES,
+    candles_for_history
+)
 from indicators import compute_indicators
-from signals import compute_signals, latest_signal
+from signals import compute_signals, latest_signal, signal_color
 from charts import create_price_rsi_figure, create_signal_history_figure
 from backtest import compute_backtest_trades, summarize_backtest
+
+# externe Modules
 from html import escape
 import pandas as pd
 import numpy as np
