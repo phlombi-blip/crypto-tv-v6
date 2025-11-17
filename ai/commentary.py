@@ -1,31 +1,58 @@
 # ai/commentary.py
-from ai.analyzers import detect_trend, detect_rsi_divergence, detect_volatility
-from ai.copilot import ask_copilot
+
+from textwrap import dedent
 
 
-def market_commentary(df):
-    if df.empty:
-        return "Keine Daten verfügbar."
+def _trend_to_text(trend: str) -> str:
+    return {
+        "strong_uptrend": "starker Aufwärtstrend (EMA20 > EMA50 & über MA200)",
+        "uptrend": "Aufwärtstrend (über MA200)",
+        "sideways": "Seitwärtsphase",
+        "downtrend": "Abwärtstrend (unter MA200)",
+        "strong_downtrend": "starker Abwärtstrend (EMA20 < EMA50 & unter MA200)",
+    }.get(trend, "Trend unklar")
 
-    last = df.iloc[-1]
 
-    trend = detect_trend(df)
-    div = detect_rsi_divergence(df)
-    vol = detect_volatility(df)
+def _div_to_text(div: str) -> str:
+    return {
+        "bullish_divergence": "bullishe RSI-Divergenz (bullish)",
+        "bearish_divergence": "bearishe RSI-Divergenz (bearish)",
+        "none": "keine Divergenz",
+    }[div]
 
-    market_state = {
-        "price": float(last["close"]),
-        "rsi": float(last["rsi14"]),
-        "ema20": float(last["ema20"]),
-        "ema50": float(last["ema50"]),
-        "ma200": float(last["ma200"]),
-        "bb_up": float(last["bb_up"]),
-        "bb_lo": float(last["bb_lo"]),
-        "trend": trend,
-        "divergences": div,
-        "volatility": vol,
-    }
 
-    prompt = "Gib mir eine kurze Marktanalyse basierend auf den Daten."
+def _vol_to_text(vol: str) -> str:
+    return {
+        "low": "niedrige Volatilität (Ranging / Kompression)",
+        "normal": "normale Volatilität",
+        "high": "hohe Volatilität (Breakouts möglich)",
+    }.get(vol, "Volatilität unklar")
 
-    return ask_copilot(prompt, market_state)
+
+def market_commentary(symbol: str, timeframe: str, trend: str, divergence: str, vol: str, last_price: float, last_signal: str):
+    """
+    Generiert einen kurzen automatischen Text für den KI-Marktkommentar.
+    """
+
+    trend_txt = _trend_to_text(trend)
+    div_txt = _div_to_text(divergence)
+    vol_txt = _vol_to_text(vol)
+
+    text = f"""
+    **{symbol}/{timeframe} — KI Markteinschätzung**
+
+    • **Preis**: {last_price:,.2f} USD  
+    • **Trend**: {trend_txt}  
+    • **RSI Analyse**: {div_txt}  
+    • **Volatilität**: {vol_txt}  
+    • **Systemsignal**: {last_signal}
+
+    **Interpretation:**  
+    - Trend: {trend_txt}.  
+    - Divergenz: {div_txt}.  
+    - Volatilität: {vol_txt}.  
+
+    Hinweis: Dies ist eine rein technische Einschätzung basierend auf deinem Chart.
+    """
+
+    return dedent(text).strip()
