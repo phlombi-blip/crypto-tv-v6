@@ -608,7 +608,7 @@ def main():
     interval_internal = TIMEFRAMES[tf_label]
 
     # Layout: Links Markt / Charts, Rechts KI-Copilot
-    col_left, col_right = st.columns([3, 2], gap="medium")
+    col_left, col_right = st.columns([5, 2], gap="medium")
 
     # ---------------------------------------------------------
     # WATCHLIST + CHARTS (LINKS)
