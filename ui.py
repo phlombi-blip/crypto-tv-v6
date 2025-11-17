@@ -530,9 +530,6 @@ def init_state():
     st.session_state.setdefault("backtest_horizon", 5)
     st.session_state.setdefault("backtest_trades", pd.DataFrame())
     st.session_state.setdefault("copilot_question", "")
-    # Date Range Defaults
-    st.session_state.setdefault("date_from", None)
-    st.session_state.setdefault("date_to", None)
 
 
 # ---------------------------------------------------------
@@ -572,54 +569,6 @@ def main():
     )
     st.session_state.selected_timeframe = tf_label
 
-    # Gemeinsame Basis-Variablen (werden später wiederverwendet)
-    symbol = SYMBOLS[symbol_label]
-    interval_internal = TIMEFRAMES[tf_label]
-
-    # NEU: Zeitraum-Auswahl in der Sidebar (Date-Picker von/bis)
-    st.sidebar.markdown("### Zeitraum")
-    try:
-        limit_main_sidebar = candles_for_history(interval_internal, years=YEARS_HISTORY)
-        df_all_sidebar = cached_fetch_klines(symbol, interval_internal, limit=limit_main_sidebar)
-
-        if not df_all_sidebar.empty:
-            min_date_sb = df_all_sidebar.index.min().date()
-            max_date_sb = df_all_sidebar.index.max().date()
-
-            default_from = st.session_state.get("date_from", min_date_sb) or min_date_sb
-            default_to = st.session_state.get("date_to", max_date_sb) or max_date_sb
-
-            if default_from < min_date_sb or default_from > max_date_sb:
-                default_from = min_date_sb
-            if default_to < min_date_sb or default_to > max_date_sb:
-                default_to = max_date_sb
-
-            date_from_sidebar = st.sidebar.date_input(
-                "📅 Von (Datum)",
-                value=default_from,
-                min_value=min_date_sb,
-                max_value=max_date_sb,
-                key="date_from",
-            )
-            date_to_sidebar = st.sidebar.date_input(
-                "📅 Bis (Datum)",
-                value=default_to,
-                min_value=min_date_sb,
-                max_value=max_date_sb,
-                key="date_to",
-            )
-
-            # Reihenfolge korrigieren, falls nötig
-            if date_from_sidebar > date_to_sidebar:
-                date_from_sidebar, date_to_sidebar = date_to_sidebar, date_from_sidebar
-
-            st.session_state["date_from"] = date_from_sidebar
-            st.session_state["date_to"] = date_to_sidebar
-        else:
-            st.sidebar.info("Keine Daten für Datumsauswahl verfügbar.")
-    except Exception:
-        st.sidebar.info("Datumsauswahl derzeit nicht verfügbar.")
-
     st.sidebar.markdown("### Backtest")
     horizon = st.sidebar.slider(
         "Halte-Dauer (Kerzen)",
@@ -654,8 +603,12 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # Gemeinsame Basis-Variablen
+    symbol = SYMBOLS[symbol_label]
+    interval_internal = TIMEFRAMES[tf_label]
+
     # Layout: Links Markt / Charts, Rechts KI-Copilot
-    col_left, col_right = st.columns([5, 2], gap="medium")
+    col_left, col_right = st.columns([4, 1], gap="medium")
 
     # ---------------------------------------------------------
     # WATCHLIST + CHARTS (LINKS)
@@ -724,7 +677,7 @@ def main():
 
             st.markdown('<div class="tv-title">Chart</div>', unsafe_allow_html=True)
 
-            # Daten abrufen + Zeitraum anwenden (Date-Picker jetzt in der Sidebar)
+            # Daten abrufen + Zeitraum (Date-Picker jetzt in der Sidebar)
             try:
                 limit_main = candles_for_history(interval_internal, years=YEARS_HISTORY)
 
@@ -739,25 +692,34 @@ def main():
                     min_date = df_all.index.min().date()
                     max_date = df_all.index.max().date()
 
-                    date_from = st.session_state.get("date_from", min_date) or min_date
-                    date_to = st.session_state.get("date_to", max_date) or max_date
+                    default_from = st.session_state.get("date_from", min_date)
+                    default_to = st.session_state.get("date_to", max_date)
 
-                    # Auf verfügbare Historie clampen
-                    if date_from < min_date:
-                        date_from = min_date
-                    if date_from > max_date:
-                        date_from = max_date
-                    if date_to < min_date:
-                        date_to = min_date
-                    if date_to > max_date:
-                        date_to = max_date
+                    if default_from < min_date or default_from > max_date:
+                        default_from = min_date
+                    if default_to < min_date or default_to > max_date:
+                        default_to = max_date
+
+                    # Datepicker in der Sidebar
+                    with st.sidebar:
+                        st.markdown("### Zeitraum")
+                        date_from = st.date_input(
+                            "📅 Von (Datum)",
+                            value=default_from,
+                            min_value=min_date,
+                            max_value=max_date,
+                            key="date_from",
+                        )
+                        date_to = st.date_input(
+                            "📅 Bis (Datum)",
+                            value=default_to,
+                            min_value=min_date,
+                            max_value=max_date,
+                            key="date_to",
+                        )
 
                     if date_from > date_to:
                         date_from, date_to = date_to, date_from
-
-                    # Session-State konsistent halten
-                    st.session_state["date_from"] = date_from
-                    st.session_state["date_to"] = date_to
 
                     mask = (df_all.index.date >= date_from) & (df_all.index.date <= date_to)
 
@@ -923,7 +885,7 @@ def main():
                 df_show = bt.copy()
                 df_show["entry_time"] = df_show["entry_time"].dt.strftime("%Y-%m-%d %H:%M")
                 df_show["exit_time"] = df_show["exit_time"].dt.strftime("%Y-%m-%d %H:%M")
-                df_show["ret_pct"] = df_show["ret_pct"] = df_show["ret_pct"].map(lambda x: f"{x:.2f}")
+                df_show["ret_pct"] = df_show["ret_pct"].map(lambda x: f"{x:.2f}")
                 df_show["correct"] = df_show["correct"].map(lambda x: "✅" if x else "❌")
 
                 cols = [
