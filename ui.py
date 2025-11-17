@@ -530,6 +530,11 @@ def init_state():
     st.session_state.setdefault("backtest_horizon", 5)
     st.session_state.setdefault("backtest_trades", pd.DataFrame())
     st.session_state.setdefault("copilot_question", "")
+    # Zeitraum-Defaults in Session halten
+    if "date_from" not in st.session_state:
+        st.session_state["date_from"] = None
+    if "date_to" not in st.session_state:
+        st.session_state["date_to"] = None
 
 
 # ---------------------------------------------------------
@@ -543,17 +548,11 @@ def main():
         st_autorefresh(interval=60 * 1000, key="refresh")
 
     # -----------------------------------------------------
-    # SIDEBAR / NAVIGATION
+    # SIDEBAR / NAVIGATION – Reihenfolge: Markt, Zeitraum, Backtest, Theme
     # -----------------------------------------------------
     st.sidebar.title("⚙️ Navigation & Einstellungen")
 
-    theme = st.sidebar.radio(
-        "Theme",
-        ["Dark", "Light"],
-        index=0 if st.session_state.theme == "Dark" else 1,
-    )
-    st.session_state.theme = theme
-
+    # 1) Markt
     st.sidebar.markdown("### Markt")
     symbol_label = st.sidebar.selectbox(
         "Aktives Symbol",
@@ -569,6 +568,26 @@ def main():
     )
     st.session_state.selected_timeframe = tf_label
 
+    # 2) Zeitraum (nur Werte, min/max setzen wir später nach Daten-Load)
+    st.sidebar.markdown("### Zeitraum")
+    today = datetime.utcnow().date()
+    default_from = st.session_state.get("date_from") or today
+    default_to = st.session_state.get("date_to") or today
+
+    date_from = st.sidebar.date_input(
+        "📅 Von (Datum)",
+        value=default_from,
+        key="date_from",
+    )
+    date_to = st.sidebar.date_input(
+        "📅 Bis (Datum)",
+        value=default_to,
+        key="date_to",
+    )
+    st.session_state.date_from = date_from
+    st.session_state.date_to = date_to
+
+    # 3) Backtest
     st.sidebar.markdown("### Backtest")
     horizon = st.sidebar.slider(
         "Halte-Dauer (Kerzen)",
@@ -577,6 +596,15 @@ def main():
         value=st.session_state.backtest_horizon,
     )
     st.session_state.backtest_horizon = horizon
+
+    # 4) Theme
+    st.sidebar.markdown("### Theme")
+    theme = st.sidebar.radio(
+        "Darstellung",
+        ["Dark", "Light"],
+        index=0 if st.session_state.theme == "Dark" else 1,
+    )
+    st.session_state.theme = theme
 
     # Theme anwenden
     st.markdown(DARK_CSS if theme == "Dark" else LIGHT_CSS, unsafe_allow_html=True)
@@ -677,7 +705,7 @@ def main():
 
             st.markdown('<div class="tv-title">Chart</div>', unsafe_allow_html=True)
 
-            # Daten abrufen + Zeitraum (Date-Picker jetzt in der Sidebar)
+            # Daten abrufen + Zeitraum auf Basis der Sidebar-Werte
             try:
                 limit_main = candles_for_history(interval_internal, years=YEARS_HISTORY)
 
@@ -692,34 +720,28 @@ def main():
                     min_date = df_all.index.min().date()
                     max_date = df_all.index.max().date()
 
-                    default_from = st.session_state.get("date_from", min_date)
-                    default_to = st.session_state.get("date_to", max_date)
+                    # Sidebar-Werte holen und in Datenbereich clampen
+                    date_from = st.session_state.get("date_from") or min_date
+                    date_to = st.session_state.get("date_to") or max_date
 
-                    if default_from < min_date or default_from > max_date:
-                        default_from = min_date
-                    if default_to < min_date or default_to > max_date:
-                        default_to = max_date
+                    if date_from < min_date:
+                        date_from = min_date
+                        st.session_state.date_from = min_date
+                    if date_from > max_date:
+                        date_from = max_date
+                        st.session_state.date_from = max_date
 
-                    # Datepicker in der Sidebar
-                    with st.sidebar:
-                        st.markdown("### Zeitraum")
-                        date_from = st.date_input(
-                            "📅 Von (Datum)",
-                            value=default_from,
-                            min_value=min_date,
-                            max_value=max_date,
-                            key="date_from",
-                        )
-                        date_to = st.date_input(
-                            "📅 Bis (Datum)",
-                            value=default_to,
-                            min_value=min_date,
-                            max_value=max_date,
-                            key="date_to",
-                        )
+                    if date_to < min_date:
+                        date_to = min_date
+                        st.session_state.date_to = min_date
+                    if date_to > max_date:
+                        date_to = max_date
+                        st.session_state.date_to = max_date
 
                     if date_from > date_to:
                         date_from, date_to = date_to, date_from
+                        st.session_state.date_from = date_from
+                        st.session_state.date_to = date_to
 
                     mask = (df_all.index.date >= date_from) & (df_all.index.date <= date_to)
 
