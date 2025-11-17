@@ -1,5 +1,4 @@
 # config.py
-
 """
 Zentrale Konfiguration für das TradingView-Projekt.
 Alle Konstanten & Settings werden hier verwaltet.
@@ -10,7 +9,7 @@ Alle Konstanten & Settings werden hier verwaltet.
 # ---------------------------------------------------------
 BITFINEX_BASE_URL = "https://api-pub.bitfinex.com/v2"
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; CryptoTV-V5/1.0; +https://streamlit.io)"
+    "User-Agent": "Mozilla/5.0 (compatible; CryptoTV/1.0; +https://streamlit.io)"
 }
 
 # ---------------------------------------------------------
@@ -38,29 +37,30 @@ TIMEFRAMES = {
 
 DEFAULT_TIMEFRAME = "1d"
 
-# Wie viele Jahre Historie sollen geladen werden?
+# Länge der Historie für Candle-Download
 YEARS_HISTORY = 3.0
 
 # ---------------------------------------------------------
-# Signale (Mapping & Farben)
+# Signale & Farben
 # ---------------------------------------------------------
 VALID_SIGNALS = ["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"]
 
+# Konsistente Farbdefinition (PEP8-konforme Konstante)
 SIGNAL_COLORS = {
-    "STRONG BUY": "#00e676",
-    "BUY": "#81c784",
-    "SELL": "#e57373",
-    "STRONG SELL": "#d32f2f",
-    "HOLD": "#9E9E9E",
-    "NO DATA": "#BDBDBD",
+    "STRONG BUY": "#00e676",  # kräftiges Grün
+    "BUY":        "#81c784",  # helleres Grün
+    "SELL":       "#e57373",  # hellrot
+    "STRONG SELL":"#d32f2f",  # starkes Rot
+    "HOLD":       "#9E9E9E",  # grau
+    "NO DATA":    "#BDBDBD",  # hellgrau
 }
 
-# Für Badges (z.B. im Header)
 def badge_color(signal: str) -> str:
+    """Farbe, die im UI für Signal-Badges verwendet wird."""
     return SIGNAL_COLORS.get(signal, "#9E9E9E")
 
 # ---------------------------------------------------------
-# Themes
+# Theme-Farben
 # ---------------------------------------------------------
 THEMES = {
     "Dark": {
