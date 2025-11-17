@@ -1004,7 +1004,41 @@ def main():
 
             st.markdown("</div>", unsafe_allow_html=True)
 
+# ---------------------------------------------------------
+# KI-COPILOT CHAT (User → KI)
+# ---------------------------------------------------------
+st.markdown("")
+with st.container():
+    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+    st.markdown('<div class="tv-title">🤝 KI CoPilot Chat</div>', unsafe_allow_html=True)
 
+    user_q = st.text_input("Stelle der KI eine Frage zum aktuellen Chart:")
+
+    if user_q:
+        with st.spinner("KI analysiert den Chart..."):
+            reply = ask_copilot(
+                question=user_q,
+                df=df,
+                symbol=symbol_label,
+                timeframe=tf_label,
+            )
+
+        st.markdown(
+            f"""
+            <div style="
+                background: rgba(147,51,234,0.1);
+                padding: 12px 16px;
+                border-radius: 10px;
+                border: 1px solid rgba(147,51,234,0.3);
+            ">
+                {reply}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("</div>", unsafe_allow_html=True)
+    
 # ---------------------------------------------------------
 # LAUNCH
 # ---------------------------------------------------------
