@@ -519,7 +519,42 @@ def signal_color(signal: str) -> str:
         "NO DATA": "#757575",
     }.get(signal, "#9E9E9E")
 
+# ---------------------------------------------------------
+# KI-INSIGHTS (TradingView Style Panel)
+# ---------------------------------------------------------
+st.markdown("")
+with st.container():
+    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+    st.markdown('<div class="tv-title">🤖 KI Insights</div>', unsafe_allow_html=True)
 
+    try:
+        auto_text = market_commentary(
+            symbol=symbol_label,
+            timeframe=tf_label,
+            trend=trend,
+            rsi_divergence=rsi_div,
+            volatility=vol,
+        )
+
+        st.markdown(
+            f"""
+            <div style="
+                background: rgba(59,130,246,0.07);
+                padding: 12px 16px;
+                border-radius: 10px;
+                border: 1px solid rgba(59,130,246,0.25);
+            ">
+                {auto_text}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    except Exception as e:
+        st.error(f"KI Insights Fehler: {e}")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+    
 # ---------------------------------------------------------
 # SESSION STATE INITIALISIERUNG
 # ---------------------------------------------------------
