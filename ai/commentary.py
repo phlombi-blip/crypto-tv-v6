@@ -1,58 +1,33 @@
-# ai/commentary.py
+from __future__ import annotations
+import pandas as pd
+from .analyzers import detect_trend, detect_rsi_divergence, detect_volume_spike
 
-from textwrap import dedent
-
-
-def _trend_to_text(trend: str) -> str:
-    return {
-        "strong_uptrend": "starker Aufwärtstrend (EMA20 > EMA50 & über MA200)",
-        "uptrend": "Aufwärtstrend (über MA200)",
-        "sideways": "Seitwärtsphase",
-        "downtrend": "Abwärtstrend (unter MA200)",
-        "strong_downtrend": "starker Abwärtstrend (EMA20 < EMA50 & unter MA200)",
-    }.get(trend, "Trend unklar")
-
-
-def _div_to_text(div: str) -> str:
-    return {
-        "bullish_divergence": "bullishe RSI-Divergenz (bullish)",
-        "bearish_divergence": "bearishe RSI-Divergenz (bearish)",
-        "none": "keine Divergenz",
-    }[div]
-
-
-def _vol_to_text(vol: str) -> str:
-    return {
-        "low": "niedrige Volatilität (Ranging / Kompression)",
-        "normal": "normale Volatilität",
-        "high": "hohe Volatilität (Breakouts möglich)",
-    }.get(vol, "Volatilität unklar")
-
-
-def market_commentary(symbol: str, timeframe: str, trend: str, divergence: str, vol: str, last_price: float, last_signal: str):
+def market_commentary(df: pd.DataFrame, symbol_label: str, timeframe_label: str) -> str:
     """
-    Generiert einen kurzen automatischen Text für den KI-Marktkommentar.
+    Builds a concise, human-readable commentary string based on analyzers.
+    Pure function – no Streamlit calls. Safe to run each refresh.
     """
+    if df is None or df.empty:
+        return f"{symbol_label}/{timeframe_label}: Keine Daten vorhanden."
 
-    trend_txt = _trend_to_text(trend)
-    div_txt = _div_to_text(divergence)
-    vol_txt = _vol_to_text(vol)
+    t = detect_trend(df)
+    div = detect_rsi_divergence(df)
+    vol = detect_volume_spike(df)
 
-    text = f"""
-    **{symbol}/{timeframe} — KI Markteinschätzung**
+    parts = [f"📈 {symbol_label}/{timeframe_label} – KI-Kurzkommentar:"]
+    # trend
+    parts.append(f"• Trend: **{t['state']}** (Stärke {t['strength']:.2f}).")
+    # divergence
+    if div["type"] != "none":
+        arrow = "🟢 Bullische Divergenz" if div["type"] == "bullish" else "🔴 Bärische Divergenz"
+        parts.append(f"• RSI: {arrow} (Konfidenz {div['confidence']:.2f}).")
+    else:
+        parts.append("• RSI: Keine klare Divergenz.")
+    # volume
+    if vol["spike"]:
+        parts.append(f"• Volumen: Spike erkannt (x{vol['ratio']:.1f} über Durchschnitt).")
+    else:
+        parts.append("• Volumen: Unauffällig.")
 
-    • **Preis**: {last_price:,.2f} USD  
-    • **Trend**: {trend_txt}  
-    • **RSI Analyse**: {div_txt}  
-    • **Volatilität**: {vol_txt}  
-    • **Systemsignal**: {last_signal}
-
-    **Interpretation:**  
-    - Trend: {trend_txt}.  
-    - Divergenz: {div_txt}.  
-    - Volatilität: {vol_txt}.  
-
-    Hinweis: Dies ist eine rein technische Einschätzung basierend auf deinem Chart.
-    """
-
-    return dedent(text).strip()
+    parts.append("• Hinweis: Das ist kein Finanzrat – bitte eigenes Risk-Management nutzen.")
+    return "  \n".join(parts)
