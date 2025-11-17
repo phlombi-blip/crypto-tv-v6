@@ -6,9 +6,9 @@ from datetime import datetime
 from html import escape
 
 # KI-CoPilot Module
+from ai.analyzers import detect_trend, detect_rsi_divergence, detect_volatility
 from ai.commentary import market_commentary
 from ai.copilot import ask_copilot
-from ai.analyzers import detect_trend, detect_rsi_divergence, detect_volatility
 
 # Charts
 from charts import create_price_rsi_figure, create_signal_history_figure
