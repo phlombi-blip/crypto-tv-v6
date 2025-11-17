@@ -1,26 +1,33 @@
 # ai/copilot.py
 
+import os
 import streamlit as st
 from openai import OpenAI
 
-# OpenAI-Client mit API-Key aus Streamlit-Secrets
-client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
+# Versuche, den API-Key aus Secrets oder Umgebungsvariablen zu holen
+api_key = st.secrets.get("OPENAI_API_KEY", None) or os.getenv("OPENAI_API_KEY")
+
+if not api_key:
+    # Hier bewusst eigene, klare Fehlermeldung
+    raise RuntimeError(
+        "Kein OpenAI API-Key gefunden. "
+        "Bitte in Streamlit unter 'Secrets' einen Eintrag "
+        'OPENAI_API_KEY = "sk-..." anlegen '
+        "oder die Umgebungsvariable OPENAI_API_KEY setzen."
+    )
+
+client = OpenAI(api_key=api_key)
+
 
 def ask_copilot(question, df, symbol, timeframe, last_signal=None):
     """
     KI-CoPilot analysiert den Chart und beantwortet Fragen.
-    question: Frage des Users (Text)
-    df: DataFrame mit Chart-/Indikator-Daten
-    symbol: z.B. "BTC"
-    timeframe: z.B. "1h"
-    last_signal: optional, z.B. "BUY" / "SELL"
     """
-
     if df is None or df.empty:
         chart_summary = "Keine Daten verfügbar."
     else:
         chart_summary = (
-            f"Letzter Schlusskurs: {df['close'].iloc[-1]:.2f}\n"
+            f"Last Close: {df['close'].iloc[-1]:.2f}\n"
             f"RSI14: {df['rsi14'].iloc[-1]:.2f}\n"
             f"EMA20: {df['ema20'].iloc[-1]:.2f}\n"
             f"EMA50: {df['ema50'].iloc[-1]:.2f}\n"
@@ -38,7 +45,7 @@ Du bist ein professioneller Trading-Assistent. Analysiere den Chart basierend au
 Symbol: {symbol}
 Timeframe: {timeframe}
 
-Chart-Daten (letzte Kerze):
+Chart-Daten:
 {chart_summary}
 
 {last_signal_txt}
@@ -46,8 +53,7 @@ Chart-Daten (letzte Kerze):
 User-Frage:
 {question}
 
-Gib klare, präzise Hinweise, sprich in einfachen Worten
-und erkläre unbedingt den Trading-Kontext (Risiken, Szenarien, kein Finanzrat).
+Gib klare, präzise Hinweise und erkläre den Trading-Kontext (Risiken, Szenarien, kein Finanzrat).
 """
 
     try:
@@ -59,7 +65,6 @@ und erkläre unbedingt den Trading-Kontext (Risiken, Szenarien, kein Finanzrat).
             ],
             max_tokens=400,
         )
-
         return response.choices[0].message.content
 
     except Exception as e:
