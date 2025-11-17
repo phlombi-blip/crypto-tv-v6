@@ -519,58 +519,7 @@ def signal_color(signal: str) -> str:
         "NO DATA": "#757575",
     }.get(signal, "#9E9E9E")
 
-# ---------------------------------------------------------
-# KI-INSIGHTS (TradingView Style Panel)
-# ---------------------------------------------------------
-st.markdown("")
-with st.container():
-    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
-    st.markdown('<div class="tv-title">🤖 KI Insights</div>', unsafe_allow_html=True)
 
-    # 🔧 Fix: Falls Variablen noch nicht definiert sind
-    try:
-        symbol_label = st.session_state.selected_symbol
-    except:
-        symbol_label = "BTC"
-
-    try:
-        tf_label = st.session_state.selected_timeframe
-    except:
-        tf_label = "1d"
-
-    # Platzhalter, bis echte Werte später im Code berechnet werden
-    trend = None
-    rsi_div = None
-    vol = None
-
-    try:
-        auto_text = market_commentary(
-            symbol=symbol_label,
-            timeframe=tf_label,
-            trend=trend,
-            rsi_divergence=rsi_div,
-            volatility=vol,
-        )
-
-        st.markdown(
-            f"""
-            <div style="
-                background: rgba(59,130,246,0.07);
-                padding: 12px 16px;
-                border-radius: 10px;
-                border: 1px solid rgba(59,130,246,0.25);
-            ">
-                {auto_text}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    except Exception as e:
-        st.error(f"KI Insights Fehler: {e}")
-
-    st.markdown("</div>", unsafe_allow_html=True)
-    
 # ---------------------------------------------------------
 # SESSION STATE INITIALISIERUNG
 # ---------------------------------------------------------
@@ -580,7 +529,6 @@ def init_state():
     st.session_state.setdefault("theme", "Dark")
     st.session_state.setdefault("backtest_horizon", 5)
     st.session_state.setdefault("backtest_trades", pd.DataFrame())
-    st.session_state.setdefault("copilot_tab", "summary")
     st.session_state.setdefault("copilot_question", "")
 
 
@@ -594,8 +542,11 @@ def main():
     if st_autorefresh is not None:
         st_autorefresh(interval=60 * 1000, key="refresh")
 
-    # Sidebar: Theme Toggle
-    st.sidebar.title("⚙️ Einstellungen")
+    # -----------------------------------------------------
+    # SIDEBAR / NAVIGATION
+    # -----------------------------------------------------
+    st.sidebar.title("⚙️ Navigation & Einstellungen")
+
     theme = st.sidebar.radio(
         "Theme",
         ["Dark", "Light"],
@@ -603,6 +554,31 @@ def main():
     )
     st.session_state.theme = theme
 
+    st.sidebar.markdown("### Markt")
+    symbol_label = st.sidebar.selectbox(
+        "Aktives Symbol",
+        list(SYMBOLS.keys()),
+        index=list(SYMBOLS.keys()).index(st.session_state.selected_symbol),
+    )
+    st.session_state.selected_symbol = symbol_label
+
+    tf_label = st.sidebar.radio(
+        "Timeframe",
+        list(TIMEFRAMES.keys()),
+        index=list(TIMEFRAMES.keys()).index(st.session_state.selected_timeframe),
+    )
+    st.session_state.selected_timeframe = tf_label
+
+    st.sidebar.markdown("### Backtest")
+    horizon = st.sidebar.slider(
+        "Halte-Dauer (Kerzen)",
+        1,
+        20,
+        value=st.session_state.backtest_horizon,
+    )
+    st.session_state.backtest_horizon = horizon
+
+    # Theme anwenden
     st.markdown(DARK_CSS if theme == "Dark" else LIGHT_CSS, unsafe_allow_html=True)
 
     # Header Bar
@@ -627,6 +603,10 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # Gemeinsame Basis-Variablen
+    symbol = SYMBOLS[symbol_label]
+    interval_internal = TIMEFRAMES[tf_label]
+
     # Layout: Links Markt / Charts, Rechts KI-Copilot
     col_left, col_right = st.columns([3, 2], gap="medium")
 
@@ -639,18 +619,8 @@ def main():
             st.markdown('<div class="tv-card">', unsafe_allow_html=True)
             st.markdown('<div class="tv-title">Watchlist</div>', unsafe_allow_html=True)
 
-            sel = st.radio(
-                "Symbol",
-                list(SYMBOLS.keys()),
-                index=list(SYMBOLS.keys()).index(st.session_state.selected_symbol),
-                label_visibility="collapsed",
-                horizontal=True,
-            )
-            st.session_state.selected_symbol = sel
-
             rows = []
-            selected_tf_label = st.session_state.selected_timeframe
-            selected_tf_internal = TIMEFRAMES[selected_tf_label]
+            selected_tf_internal = interval_internal
             limit_watch = candles_for_history(selected_tf_internal, years=YEARS_HISTORY)
 
             for label, sym in SYMBOLS.items():
@@ -705,20 +675,7 @@ def main():
         with st.container():
             st.markdown('<div class="tv-card">', unsafe_allow_html=True)
 
-            symbol_label = st.session_state.selected_symbol
-            symbol = SYMBOLS[symbol_label]
-            tf_label = st.session_state.selected_timeframe
-            interval_internal = TIMEFRAMES[tf_label]
-
             st.markdown('<div class="tv-title">Chart</div>', unsafe_allow_html=True)
-
-            # Timeframe-Buttons
-            cols_tf = st.columns(len(TIMEFRAMES))
-            for i, tf in enumerate(TIMEFRAMES.keys()):
-                with cols_tf[i]:
-                    if st.button(tf, key=f"tf_{tf}"):
-                        st.session_state.selected_timeframe = tf
-                        st.rerun()
 
             # Daten abrufen + Date-Picker
             try:
@@ -892,13 +849,8 @@ def main():
                 if df.empty:
                     st.info("Keine Daten.")
                 else:
-                    horizon = st.slider(
-                        "Halte-Dauer (Kerzen)",
-                        1,
-                        20,
-                        value=st.session_state.backtest_horizon,
-                    )
-                    st.session_state.backtest_horizon = horizon
+                    horizon = st.session_state.backtest_horizon
+                    st.caption(f"Halte-Dauer: **{horizon} Kerzen**")
 
                     bt = compute_backtest_trades(df, horizon)
                     st.session_state.backtest_trades = bt
@@ -961,7 +913,7 @@ def main():
             st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------------------------------------------------------
-    # RECHTS: KI-COPILOT
+    # RECHTS: KI-COPILOT (aufgeräumt, mit Tabs)
     # ---------------------------------------------------------
     with col_right:
         with st.container():
@@ -973,10 +925,10 @@ def main():
                 st.markdown("</div>", unsafe_allow_html=True)
                 return
 
-            # 1) Auto-Kurzkommentar
+            # Analyse-Grundlagen aus den Chart-Daten
             trend = detect_trend(df)
             rsi_div = detect_rsi_divergence(df)
-            vol = detect_volume_spike(df)  # <--- HIER war vorher detect_volatility(df)
+            vol = detect_volume_spike(df)
 
             auto_text = market_commentary(
                 symbol=symbol_label,
@@ -986,75 +938,45 @@ def main():
                 volatility=vol,
             )
 
-            st.markdown(f"**Auto-Analyse ({symbol_label} – {tf_label})**")
-            st.write(auto_text)
+            # Tabs: links Auto-Analyse, rechts Chat
+            tab_auto, tab_chat = st.tabs(["📊 Auto-Analyse", "💬 KI-Chat"])
 
-            st.markdown("---")
+            # --- TAB 1: Auto-Analyse / Insights ---
+            with tab_auto:
+                st.markdown(f"**Auto-Analyse ({symbol_label} – {tf_label})**")
+                st.write(auto_text)
 
-            # 2) Interaktiver Chat mit CoPilot
-            st.markdown("**Frag den CoPilot** – z.B.:")
-            st.caption("„Wie würdest du den aktuellen BTC-Chart interpretieren?“")
-            st.caption("„Welche Risiken siehst du im aktuellen Setup?“")
+            # --- TAB 2: Interaktiver KI-Chat ---
+            with tab_chat:
+                st.markdown("**Frag den CoPilot** – z.B.:")
+                st.caption("„Wie würdest du den aktuellen BTC-Chart interpretieren?“")
+                st.caption("„Welche Risiken siehst du im aktuellen Setup?“")
 
-            question = st.text_area(
-                "Deine Frage an den KI-CoPilot",
-                value=st.session_state.copilot_question,
-                height=80,
-            )
-            st.session_state.copilot_question = question
+                question = st.text_area(
+                    "Deine Frage an den KI-CoPilot",
+                    value=st.session_state.get("copilot_question", ""),
+                    height=80,
+                )
+                st.session_state.copilot_question = question
 
-            if st.button("Antwort vom CoPilot holen"):
-                if not question.strip():
-                    st.warning("Bitte zuerst eine Frage eingeben.")
-                else:
-                    with st.spinner("CoPilot denkt nach..."):
-                        answer = ask_copilot(
-                            question=question,
-                            symbol=symbol_label,
-                            timeframe=tf_label,
-                            df=df,
-                            last_signal=sig,
-                        )
-                    st.markdown("**Antwort:**")
-                    st.write(answer)
+                if st.button("Antwort vom CoPilot holen"):
+                    if not question.strip():
+                        st.warning("Bitte zuerst eine Frage eingeben.")
+                    else:
+                        with st.spinner("CoPilot denkt nach..."):
+                            answer = ask_copilot(
+                                question=question,
+                                symbol=symbol_label,
+                                timeframe=tf_label,
+                                df=df,
+                                last_signal=sig,
+                            )
+                        st.markdown("**Antwort:**")
+                        st.write(answer)
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-# ---------------------------------------------------------
-# KI-COPILOT CHAT (User → KI)
-# ---------------------------------------------------------
-st.markdown("")
-with st.container():
-    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
-    st.markdown('<div class="tv-title">🤝 KI CoPilot Chat</div>', unsafe_allow_html=True)
 
-    user_q = st.text_input("Stelle der KI eine Frage zum aktuellen Chart:")
-
-    if user_q:
-        with st.spinner("KI analysiert den Chart..."):
-            reply = ask_copilot(
-                question=user_q,
-                df=df,
-                symbol=symbol_label,
-                timeframe=tf_label,
-            )
-
-        st.markdown(
-            f"""
-            <div style="
-                background: rgba(147,51,234,0.1);
-                padding: 12px 16px;
-                border-radius: 10px;
-                border: 1px solid rgba(147,51,234,0.3);
-            ">
-                {reply}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("</div>", unsafe_allow_html=True)
-    
 # ---------------------------------------------------------
 # LAUNCH
 # ---------------------------------------------------------
