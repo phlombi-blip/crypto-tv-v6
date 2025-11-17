@@ -42,16 +42,15 @@ def create_price_rsi_figure(df, symbol_label, timeframe_label, theme):
     EMA50_COLOR = "#FF6D00"   # EMA50
     EMA200_COLOR = "#C51162"  # MA200
 
+    # --- Bollinger Farben (Original-Version, dezent ausgegraut) ---
     if theme == "Dark":
-        # Dezentes Grau/Weiß für Bollinger in dunklem Chart
-        BB_LINE_COLOR = "#d1d5db"                # hellgraue Linie
-        BB_FILL_COLOR = "rgba(209,213,219,0.10)" # super sanftes Grau
-        BB_MID_COLOR  = "#9ca3af"                # Mittelband: graublau
+        BB_LINE_COLOR = "#9ca3af"                     # hellgrau
+        BB_FILL_COLOR = "rgba(156,163,175,0.10)"      # sanftes transparentes Grau
+        BB_MID_COLOR  = "#6b7280"                     # dunkleres Grau (Midline)
     else:
-        # Dezentes Hellgrau/Graublau für helles Chart
-        BB_LINE_COLOR = "#94a3b8"                # graublau
-        BB_FILL_COLOR = "rgba(148,163,184,0.07)" # sehr leichtes Grau
-        BB_MID_COLOR  = "#6b7280"                # dunkleres Grau
+        BB_LINE_COLOR = "#6b7280"                     # neutral grau
+        BB_FILL_COLOR = "rgba(107,114,128,0.10)"      # dezentes grau
+        BB_MID_COLOR  = "#4b5563"                     # etwas dunkler für Midline
 
     layout_kwargs = base_layout_kwargs(theme)
     bg = layout_kwargs["plot_bgcolor"]
