@@ -1,104 +1,84 @@
-    # ---------------------------------------------------------
-    # KI-ANALYSE PANEL
-    # ---------------------------------------------------------
-    st.markdown("")
+from __future__ import annotations
+import numpy as np
+import pandas as pd
 
-    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
-    st.markdown('<div class="tv-title">🤖 KI-Analyse</div>', unsafe_allow_html=True)
+# --- Lightweight helpers (pure functions, no Streamlit calls!) ---
 
-    if not df.empty:
-        # --- 1) Automatische Indikatoranalyse ---
-        trend = detect_trend(df)
-        rsi_div = detect_rsi_divergence(df)
-        vol = detect_volatility(df)
+def _slope(series: pd.Series, lookback: int) -> float:
+    """Return simple slope over the last N points (approx trend strength)."""
+    if len(series) < max(2, lookback):
+        return 0.0
+    y = series.iloc[-lookback:].to_numpy(dtype=float)
+    x = np.arange(len(y), dtype=float)
+    # least squares slope
+    denom = (x - x.mean()).var() * len(x)
+    if denom == 0:
+        return 0.0
+    slope = ((x - x.mean()) * (y - y.mean())).sum() / denom
+    return float(slope)
 
-        # --- 2) GPT-Marktkommentar ---
-        ai_comment = market_commentary(
-            df=df,
-            symbol=st.session_state.selected_symbol,
-            timeframe=st.session_state.selected_timeframe,
-            trend=trend,
-            rsi_divergence=rsi_div,
-            volatility=vol,
-        )
+def detect_trend(df: pd.DataFrame, lookback: int = 50) -> dict:
+    """
+    Very simple trend detector based on close and MA200.
+    Returns dict: {state, strength, details}
+    """
+    if df.empty or "close" not in df or "ma200" not in df:
+        return {"state": "unknown", "strength": 0.0, "details": "not enough data"}
 
-        st.markdown(
-            f"""
-            <div class="ai-box">
-                <b>📊 Automatische Marktanalyse</b><br><br>
-                {ai_comment}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    close = df["close"]
+    ma200 = df["ma200"]
 
-        # Manuelles Aktualisieren
-        if st.button("🔍 KI-Analyse aktualisieren"):
-            st.rerun()
+    above_ma = close.iloc[-1] > (ma200.iloc[-1] if not pd.isna(ma200.iloc[-1]) else np.inf)
+    slope_close = _slope(close, min(lookback, len(close)))
+    slope_ma = _slope(ma200.dropna(), min(lookback, ma200.notna().sum())) if ma200.notna().any() else 0.0
 
-    else:
-        st.info("Keine Daten für KI-Analyse.")
-    st.markdown("</div>", unsafe_allow_html=True)
+    score = (1.5 if above_ma else -1.5) + 3.0 * np.tanh(5 * slope_close) + 1.0 * np.tanh(5 * slope_ma)
+    state = "bullish" if score > 0.6 else "bearish" if score < -0.6 else "neutral"
 
+    return {
+        "state": state,
+        "strength": float(np.clip(score / 3.5, -1, 1)),
+        "details": f"above_ma={above_ma}, slope_close={slope_close:.4f}, slope_ma={slope_ma:.4f}",
+    }
 
+def detect_rsi_divergence(df: pd.DataFrame, lookback: int = 30) -> dict:
+    """
+    Naive RSI divergence check: compares swing highs/lows in price vs RSI.
+    Returns dict: {type: 'bullish'|'bearish'|'none', confidence}
+    """
+    if df.empty or "close" not in df or "rsi14" not in df:
+        return {"type": "none", "confidence": 0.0}
 
-    # ---------------------------------------------------------
-    # KI-COPILOT CHAT
-    # ---------------------------------------------------------
-    st.markdown("")
-    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
-    st.markdown('<div class="tv-title">🧠 KI-CoPilot Chat</div>', unsafe_allow_html=True)
+    sub = df.iloc[-lookback:]
+    price = sub["close"].to_numpy(dtype=float)
+    rsi = sub["rsi14"].to_numpy(dtype=float)
 
-    st.markdown("""
-        Stelle Fragen wie:<br>
-        • „Ist das ein möglicher Breakout?“<br>
-        • „Bewerte den Trend.“<br>
-        • „Ist jetzt ein guter Zeitpunkt zum Einstieg?“<br>
-        • „Was sagt das Volumen?“<br>
-    """, unsafe_allow_html=True)
+    # pick last two extrema (very crude)
+    p_min_idx = np.argmin(price)
+    p_max_idx = np.argmax(price)
+    r_min_idx = np.argmin(rsi)
+    r_max_idx = np.argmax(rsi)
 
-    # Chatverlauf anzeigen
-    for msg in st.session_state.ai_chat_history:
-        who, text = msg["role"], msg["content"]
-        bubble_color = "#1e293b" if theme == "Dark" else "#e2e8f0"
-        align = "left" if who == "assistant" else "right"
+    bullish = p_min_idx < len(price) - 1 and r_min_idx < len(rsi) - 1 and price[-1] < price[p_min_idx] and rsi[-1] > rsi[r_min_idx]
+    bearish = p_max_idx < len(price) - 1 and r_max_idx < len(rsi) - 1 and price[-1] > price[p_max_idx] and rsi[-1] < rsi[r_max_idx]
 
-        st.markdown(
-            f"""
-            <div style='text-align:{align}; margin:6px 0;'>
-                <div style='display:inline-block; padding:8px 12px; 
-                            background:{bubble_color}; border-radius:8px; 
-                            max-width:80%;'
-                >
-                    {text}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    if bullish and not bearish:
+        return {"type": "bullish", "confidence": 0.6}
+    if bearish and not bullish:
+        return {"type": "bearish", "confidence": 0.6}
+    return {"type": "none", "confidence": 0.0}
 
-    # Eingabefeld
-    user_msg = st.text_input("Deine Frage an den CoPilot:")
-    if st.button("Senden"):
-        if user_msg.strip():
-            st.session_state.ai_chat_history.append(
-                {"role": "user", "content": user_msg}
-            )
-
-            # Antwort vom CoPilot
-            answer = ask_copilot(user_msg, df)
-            st.session_state.ai_chat_history.append(
-                {"role": "assistant", "content": answer}
-            )
-
-            st.rerun()
-
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-
-# ---------------------------------------------------------
-# MAIN ENTRY
-# ---------------------------------------------------------
-if __name__ == "__main__":
-    main()
+def detect_volume_spike(df: pd.DataFrame, window: int = 20, threshold: float = 2.0) -> dict:
+    """
+    Detects if the latest volume is a spike compared to rolling mean.
+    Returns dict: {spike: bool, ratio}
+    """
+    if df.empty or "volume" not in df:
+        return {"spike": False, "ratio": 0.0}
+    v = df["volume"].astype(float)
+    if len(v) < window + 1:
+        return {"spike": False, "ratio": 0.0}
+    mean = v.iloc[-(window+1):-1].mean()
+    latest = v.iloc[-1]
+    ratio = float(latest / mean) if mean > 0 else 0.0
+    return {"spike": ratio >= threshold, "ratio": ratio}
