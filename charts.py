@@ -91,96 +91,84 @@ def create_price_rsi_figure(df, symbol_label, timeframe_label, theme):
     # 1) Bollinger-Band-Fläche nur mit validen Werten zeichnen
     has_bb = {"bb_up", "bb_lo", "bb_mid"}.issubset(df.columns)
 
-    bb_up_f = bb_lo_f = bb_mid_f = None
-    if has_bb and df["bb_up"].notna().any():
-        bb_up_f = df["bb_up"].copy()
-        bb_lo_f = df["bb_lo"].copy()
-        bb_mid_f = df["bb_mid"].copy()
+if has_bb and df["bb_up"].notna().any():
+    # Lücken sauber auffüllen
+    bb_up_f = df["bb_up"].bfill().ffill()
+    bb_lo_f = df["bb_lo"].bfill().ffill()
+    bb_mid_f = df["bb_mid"].bfill().ffill()
 
-        # erst nach unten, dann nach oben füllen → keine Lücken im aktuellen Fenster
-        bb_up_f = bb_up_f.bfill().ffill()
-        bb_lo_f = bb_lo_f.bfill().ffill()
-        bb_mid_f = bb_mid_f.bfill().ffill()
-
-        # Bollinger-Band als Shape über den kompletten sichtbaren Bereich
-        xs = df.index
-        up = bb_up_f
-        lo = bb_lo_f
-
-        path = "M " + " L ".join(f"{x},{y}" for x, y in zip(xs, up))
-        path += " L " + " L ".join(f"{x},{y}" for x, y in zip(xs[::-1], lo[::-1])) + " Z"
-
-        fig.add_shape(
-            type="path",
-            path=path,
-            fillcolor=BB_FILL_COLOR,
-            line=dict(width=0),
-            layer="below",  # Fläche hinter den Candles
-            row=1,
-            col=1,
-        )
-
-    # 2) Candles (liegen über dem Band)
+    # Fläche zuerst (liegt hinter Candles)
     fig.add_trace(
-        go.Candlestick(
+        go.Scatter(
             x=df.index,
-            open=df["open"],
-            high=df["high"],
-            low=df["low"],
-            close=df["close"],
-            name="Price",
-            increasing_fillcolor=BULL_COLOR,
-            increasing_line_color=BULL_COLOR,
-            decreasing_fillcolor=BEAR_COLOR,
-            decreasing_line_color=BEAR_COLOR,
+            y=bb_up_f,
+            mode="lines",
+            line=dict(width=0),
+            showlegend=False,
+            hoverinfo="skip",
+            fill="tonexty",
+            fillcolor=BB_FILL_COLOR,
         ),
         row=1,
         col=1,
         secondary_y=False,
     )
 
-    # 3) Bollinger-Linien (Upper/Lower/Mid)
-    if bb_up_f is not None:
-        fig.add_trace(
-            go.Scatter(
-                x=df.index,
-                y=bb_up_f,
-                name="BB Upper",
-                mode="lines",
-                line=dict(width=1, color=BB_LINE_COLOR),
-            ),
-            row=1,
-            col=1,
-            secondary_y=False,
-        )
+    fig.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=bb_lo_f,
+            mode="lines",
+            line=dict(width=0),
+            name="BB Range",
+            showlegend=True,
+            hoverinfo="skip",
+        ),
+        row=1,
+        col=1,
+        secondary_y=False,
+    )
 
-    if bb_lo_f is not None:
-        fig.add_trace(
-            go.Scatter(
-                x=df.index,
-                y=bb_lo_f,
-                name="BB Lower",
-                mode="lines",
-                line=dict(width=1, color=BB_LINE_COLOR),
-            ),
-            row=1,
-            col=1,
-            secondary_y=False,
-        )
+    # Linien oben & unten
+    fig.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=bb_up_f,
+            name="BB Upper",
+            mode="lines",
+            line=dict(width=1.2, color=BB_LINE_COLOR),
+        ),
+        row=1,
+        col=1,
+        secondary_y=False,
+    )
 
-    if bb_mid_f is not None:
-        fig.add_trace(
-            go.Scatter(
-                x=df.index,
-                y=bb_mid_f,
-                name="BB Basis",
-                mode="lines",
-                line=dict(width=1, dash="dot", color=BB_MID_COLOR),
-            ),
-            row=1,
-            col=1,
-            secondary_y=False,
-        )
+    fig.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=bb_lo_f,
+            name="BB Lower",
+            mode="lines",
+            line=dict(width=1.2, color=BB_LINE_COLOR),
+        ),
+        row=1,
+        col=1,
+        secondary_y=False,
+    )
+
+    # Midline (punktiert)
+    fig.add_trace(
+        go.Scatter(
+            x=df.index,
+            y=bb_mid_f,
+            name="BB Basis",
+            mode="lines",
+            line=dict(width=1, dash="dot", color=BB_MID_COLOR),
+        ),
+        row=1,
+        col=1,
+        secondary_y=False,
+    )
 
     # 4) EMA20 / EMA50 / MA200
     if "ema20" in df:
