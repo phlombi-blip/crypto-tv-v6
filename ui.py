@@ -3,34 +3,36 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from datetime import datetime
-from html import escape
+from html import escape  # für sichere Tooltips
 
 # KI-CoPilot Module
 from ai.analyzers import detect_trend, detect_rsi_divergence, detect_volume_spike
 from ai.commentary import market_commentary
 from ai.copilot import ask_copilot
 
-# Charts
 from charts import create_price_rsi_figure, create_signal_history_figure
 
-# Optional: Auto-Refresh
+# Optional: Auto-Refresh (falls Paket installiert ist)
 try:
     from streamlit_autorefresh import st_autorefresh
 except ImportError:
     st_autorefresh = None
 
-
 # ---------------------------------------------------------
 # BASIS-KONFIGURATION
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Crypto Live Ticker – TradingView Style V5 + AI",
+    page_title="Crypto Live + AI CoPilot",
     layout="wide",
 )
 
+# Bitfinex Public API (ohne API-Key)
 BITFINEX_BASE_URL = "https://api-pub.bitfinex.com/v2"
-HEADERS = {"User-Agent": "Mozilla/5.0"}
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; CryptoTV-V5/1.0; +https://streamlit.io)"
+}
 
+# Symbole auf Bitfinex
 SYMBOLS = {
     "BTC": "tBTCUSD",
     "ETH": "tETHUSD",
@@ -39,109 +41,143 @@ SYMBOLS = {
     "DOGE": "tDOGE:USD",
 }
 
+# Anzeige-Labels → interne Timeframes (Bitfinex: 1m..1D)
 TIMEFRAMES = {
     "1m": "1m",
     "5m": "5m",
     "15m": "15m",
     "1h": "1h",
     "4h": "4h",
-    "1d": "1D",
+    "1d": "1D",  # Bitfinex schreibt 1D
 }
 
 DEFAULT_TIMEFRAME = "1d"
 VALID_SIGNALS = ["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"]
+
+# Wie viele Jahre Historie sollen ungefähr geladen werden?
 YEARS_HISTORY = 3.0
 
 
-# ---------------------------------------------------------
-# Helper
-# ---------------------------------------------------------
-def candles_for_history(interval_internal, years=YEARS_HISTORY):
-    candles_per_day = {
-        "1m": 1440,
-        "5m": 288,
-        "15m": 96,
-        "1h": 24,
-        "4h": 6,
-        "1D": 1,
-    }.get(interval_internal, 24)
-
+def candles_for_history(interval_internal: str, years: float = YEARS_HISTORY) -> int:
+    """Rechnet ungefähr aus, wie viele Kerzen für X Jahre gebraucht werden."""
+    candles_per_day_map = {
+        "1m": 60 * 24,   # 1440
+        "5m": 12 * 24,   # 288
+        "15m": 4 * 24,   # 96
+        "1h": 24,        # 24
+        "4h": 6,         # 6
+        "1D": 1,         # 1
+    }
+    candles_per_day = candles_per_day_map.get(interval_internal, 24)
     return int(candles_per_day * 365 * years)
 
 
 # ---------------------------------------------------------
-# CSS
+# THEME CSS
 # ---------------------------------------------------------
 DARK_CSS = """
 <style>
-body, .main { background-color: #020617; }
+body, .main {
+    background-color: #020617;
+}
+.block-container {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
 .tv-card {
     background: #020617;
-    border-radius: .75rem;
+    border-radius: 0.75rem;
     border: 1px solid #1f2933;
-    padding: .75rem 1rem;
+    padding: 0.75rem 1rem;
 }
 .tv-title {
     font-weight: 600;
-    font-size: .9rem;
+    font-size: 0.9rem;
     color: #9ca3af;
     text-transform: uppercase;
-    margin-bottom: .3rem;
+    margin-bottom: 0.3rem;
 }
-.ai-box {
-    padding: .75rem;
-    border-radius: .5rem;
-    background: #0f172a;
-    border: 1px solid #1e293b;
+.signal-badge {
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    font-weight: 600;
+    display: inline-block;
 }
 </style>
 """
 
 LIGHT_CSS = """
 <style>
-body, .main { background-color: #F3F4F6; }
+body, .main {
+    background-color: #F3F4F6;
+}
+.block-container {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
 .tv-card {
-    background: white;
-    border-radius: .75rem;
+    background: #FFFFFF;
+    border-radius: 0.75rem;
     border: 1px solid #E5E7EB;
-    padding: .75rem 1rem;
+    padding: 0.75rem 1rem;
 }
 .tv-title {
     font-weight: 600;
-    font-size: .9rem;
+    font-size: 0.9rem;
     color: #6B7280;
     text-transform: uppercase;
-    margin-bottom: .3rem;
+    margin-bottom: 0.3rem;
 }
-.ai-box {
-    padding: .75rem;
-    border-radius: .5rem;
-    background: #f1f5f9;
-    border: 1px solid #cbd5e1;
+.signal-badge {
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    font-weight: 600;
+    display: inline-block;
 }
 </style>
 """
 
 
 # ---------------------------------------------------------
-# API BITFINEX
+# API FUNKTIONEN – BITFINEX
 # ---------------------------------------------------------
-def fetch_klines(symbol, interval, limit):
-    key = f"trade:{interval}:{symbol}"
+def fetch_klines(symbol: str, interval: str, limit: int = 200) -> pd.DataFrame:
+    timeframe = interval  # z.B. "1m", "1h", "1D"
+    key = f"trade:{timeframe}:{symbol}"
     url = f"{BITFINEX_BASE_URL}/candles/{key}/hist"
-    r = requests.get(url, params={"limit": limit, "sort": -1}, headers=HEADERS)
-    data = r.json()
+
+    params = {"limit": limit, "sort": -1}
+
+    resp = requests.get(url, params=params, headers=HEADERS, timeout=10)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Candles HTTP {resp.status_code}: {resp.text[:200]}")
+
+    try:
+        raw = resp.json()
+    except ValueError:
+        raise RuntimeError(f"Candles: Ungültige JSON-Antwort: {resp.text[:200]}")
+
+    if not isinstance(raw, list) or len(raw) == 0:
+        return pd.DataFrame()
 
     rows = []
-    for c in data:
-        rows.append({
-            "open_time": pd.to_datetime(c[0], unit="ms"),
-            "open": float(c[1]),
-            "close": float(c[2]),
-            "high": float(c[3]),
-            "low": float(c[4]),
-            "volume": float(c[5]),
-        })
+    for c in raw:
+        # [MTS, OPEN, CLOSE, HIGH, LOW, VOLUME]
+        if len(c) < 6:
+            continue
+        rows.append(
+            {
+                "open_time": pd.to_datetime(c[0], unit="ms"),
+                "open": float(c[1]),
+                "close": float(c[2]),
+                "high": float(c[3]),
+                "low": float(c[4]),
+                "volume": float(c[5]),
+            }
+        )
+
+    if not rows:
+        return pd.DataFrame()
 
     df = pd.DataFrame(rows).set_index("open_time")
     df.sort_index(inplace=True)
@@ -149,32 +185,56 @@ def fetch_klines(symbol, interval, limit):
 
 
 @st.cache_data(ttl=60)
-def cached_fetch_klines(symbol, interval, limit):
+def cached_fetch_klines(symbol: str, interval: str, limit: int = 200):
+    """Gecachter Candle-Abruf – reduziert Last & Rate-Limits."""
     return fetch_klines(symbol, interval, limit)
 
 
-def fetch_ticker_24h(symbol):
+def fetch_ticker_24h(symbol: str):
     url = f"{BITFINEX_BASE_URL}/ticker/{symbol}"
-    r = requests.get(url, headers=HEADERS)
-    d = r.json()
-    return float(d[6]), float(d[5]) * 100.0
+    resp = requests.get(url, headers=HEADERS, timeout=10)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Ticker HTTP {resp.status_code}: {resp.text[:200]}")
+
+    try:
+        d = resp.json()
+    except ValueError:
+        raise RuntimeError(f"Ticker: Ungültige JSON-Antwort: {resp.text[:200]}")
+
+    if not isinstance(d, (list, tuple)) or len(d) < 7:
+        raise RuntimeError(f"Ticker: Unerwartetes Format: {d}")
+
+    last_price = float(d[6])
+    change_pct = float(d[5]) * 100.0
+    return last_price, change_pct
 
 
 # ---------------------------------------------------------
-# Indicators
+# INDIKATOREN
 # ---------------------------------------------------------
-def compute_rsi(series, period=14):
+def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
     delta = series.diff()
     up = delta.clip(lower=0)
     down = -delta.clip(upper=0)
-    rs = up.ewm(alpha=1/period).mean() / down.ewm(alpha=1/period).mean()
-    return 100 - 100 / (1 + rs)
+
+    roll_up = up.ewm(alpha=1 / period, adjust=False).mean()
+    roll_down = down.ewm(alpha=1 / period, adjust=False).mean()
+
+    rs = roll_up / roll_down
+    return 100 - (100 / (1 + rs))
 
 
-def compute_indicators(df):
+def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    EMA20/EMA50, MA200, Bollinger 20, RSI14.
+    """
+    if df.empty:
+        return df
+
     close = df["close"]
-    df["ema20"] = close.ewm(span=20).mean()
-    df["ema50"] = close.ewm(span=50).mean()
+
+    df["ema20"] = close.ewm(span=20, adjust=False).mean()
+    df["ema50"] = close.ewm(span=50, adjust=False).mean()
     df["ma200"] = close.rolling(200).mean()
 
     sma20 = close.rolling(20).mean()
@@ -189,277 +249,729 @@ def compute_indicators(df):
 
 
 # ---------------------------------------------------------
-# Signals
+# SIGNAL-LOGIK (mit Begründung)
 # ---------------------------------------------------------
-def _signal_core(last, prev):
+def _signal_core_with_reason(last, prev):
+    """
+    Kernlogik:
+    - Adaptive Bollinger
+    - RSI Trend Confirmation
+    - Blow-Off-Top Detector
+    Liefert (signal, reason).
+    """
+
     close = last["close"]
     prev_close = prev["close"]
-    rsi = last["rsi14"]
-    rsi_prev = prev["rsi14"]
+
     ema50 = last["ema50"]
     ma200 = last["ma200"]
+
+    rsi_now = last["rsi14"]
+    rsi_prev = prev["rsi14"]
+
     bb_up = last["bb_up"]
     bb_lo = last["bb_lo"]
+    bb_mid = last["bb_mid"]
 
+    high = last["high"]
+    low = last["low"]
+    candle_range = high - low
+    upper_wick = high - max(close, last["open"])
+
+    # Adaptive Volatility → passt Bollinger-Sensitivität an
+    vol = (bb_up - bb_lo) / bb_mid if bb_mid != 0 else 0
+    is_low_vol = vol < 0.06
+    is_high_vol = vol > 0.12
+
+    # MA200 fehlt → nicht traden
     if pd.isna(ma200):
-        return "HOLD", "Noch keine MA200"
+        return "HOLD", "MA200 noch nicht verfügbar – zu wenig Historie, daher kein Trade."
 
+    # Nur Long-Trading in Bullen-Trends
     if close < ma200:
-        return "HOLD", "Unter MA200"
+        return "HOLD", "Kurs liegt unter MA200 – System handelt nur Long im Bullenmarkt."
 
-    if close > bb_up and rsi > 72 and rsi < rsi_prev:
-        return "SELL", "Überkauft + Umkehr"
+    # Blow-Off-Top Detector
+    blowoff = (
+        candle_range > 0
+        and upper_wick > candle_range * 0.45
+        and close < prev_close
+        and close > bb_up
+        and rsi_now > 73
+    )
 
-    if close < bb_lo and rsi < 35 and rsi > rsi_prev:
-        return "BUY", "Starker Dip + RSI dreht hoch"
+    if blowoff:
+        return (
+            "STRONG SELL",
+            "Blow-Off-Top: langer oberer Docht, Kurs über oberem Bollinger-Band "
+            "und RSI > 73 mit Umkehrkerze – hohes Top-Risiko."
+        )
 
-    return "HOLD", "Neutral"
+    # STRONG BUY – tiefer Dip
+    deep_dip = (
+        close <= bb_lo
+        and rsi_now < 35
+        and rsi_now > rsi_prev
+    )
+
+    if deep_dip:
+        if is_low_vol and close < bb_lo * 0.995:
+            return (
+                "STRONG BUY",
+                "Tiefer Dip: Kurs an/unter unterem Bollinger-Band in ruhiger Phase, "
+                "RSI < 35 dreht nach oben – aggressiver Rebound-Einstieg."
+            )
+        return (
+            "STRONG BUY",
+            "Tiefer Dip: Kurs am unteren Bollinger-Band, RSI < 35 und steigt wieder – "
+            "kräftiges Long-Signal."
+        )
+
+    # BUY – normale gesunde Pullbacks
+    buy_price_cond = (
+        close <= bb_lo * (1.01 if is_high_vol else 1.00)
+        or close <= ema50 * 0.96
+    )
+
+    buy_rsi_cond = (
+        30 < rsi_now <= 48
+        and rsi_now > rsi_prev
+    )
+
+    if buy_price_cond and buy_rsi_cond:
+        return (
+            "BUY",
+            "Gesunder Pullback: Kurs im Bereich unteres Bollinger-Band bzw. leicht unter EMA50, "
+            "RSI zwischen 30 und 48 und dreht nach oben."
+        )
+
+    # STRONG SELL – extreme Überhitzung
+    strong_sell_cond = (
+        close > ema50 * 1.12
+        and close > bb_up
+        and rsi_now > 80
+        and rsi_now < rsi_prev
+    )
+
+    if strong_sell_cond:
+        return (
+            "STRONG SELL",
+            "Extreme Überhitzung: Kurs deutlich über EMA50 und oberem Bollinger-Band, "
+            "RSI > 80 und fällt bereits – starkes Abverkaufsrisiko."
+        )
+
+    # SELL – normale Übertreibung
+    sell_cond = (
+        close > bb_up
+        and rsi_now > 72
+        and rsi_now < rsi_prev
+    )
+
+    if sell_cond:
+        return (
+            "SELL",
+            "Übertreibung: Kurs über dem oberen Bollinger-Band, RSI > 72 und dreht nach unten – "
+            "Gewinnmitnahme / Short-Signal."
+        )
+
+    # Nichts erkannt
+    return "HOLD", "Keine klare Übertreibung oder Dip – System wartet (HOLD)."
 
 
-def compute_signals(df):
-    sigs = []
+def signal_with_reason(last, prev):
+    """Neue Schnittstelle: (signal, reason)."""
+    return _signal_core_with_reason(last, prev)
+
+
+def compute_signals(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Wendet signal_with_reason() an und gibt nur neue Signale aus,
+    wenn sich die Richtung ändert → keine gespammten Wiederholungssignale.
+    Zusätzlich Spalte 'signal_reason'.
+    """
+    if df.empty or len(df) < 2:
+        df["signal"] = "NO DATA"
+        df["signal_reason"] = "Nicht genug Daten für ein Signal."
+        return df
+
+    signals = []
     reasons = []
     last_sig = "NO DATA"
 
     for i in range(len(df)):
         if i == 0:
-            sigs.append("NO DATA")
-            reasons.append("Start")
+            signals.append("NO DATA")
+            reasons.append("Erste Candle – keine Historie für Signalberechnung.")
             continue
 
-        sig_raw, reason = _signal_core(df.iloc[i], df.iloc[i-1])
+        sig_raw, reason_raw = signal_with_reason(df.iloc[i], df.iloc[i - 1])
 
+        # nur neues Signal, wenn Richtung wechselt
         if sig_raw == last_sig:
-            sigs.append("HOLD")
-            reasons.append(f"{sig_raw} bleibt bestehen")
+            sig_display = "HOLD"
+            reason_display = f"Signal '{sig_raw}' besteht weiter – kein neues Signal generiert."
         else:
-            sigs.append(sig_raw)
-            reasons.append(reason)
-            if sig_raw in ["BUY", "SELL"]:
-                last_sig = sig_raw
+            sig_display = sig_raw
+            reason_display = reason_raw
 
-    df["signal"] = sigs
+        signals.append(sig_display)
+        reasons.append(reason_display)
+
+        if sig_raw in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
+            last_sig = sig_raw
+
+    df["signal"] = signals
     df["signal_reason"] = reasons
     return df
 
 
-def latest_signal(df):
+# ---------------------------------------------------------
+# BACKTEST
+# ---------------------------------------------------------
+def latest_signal(df: pd.DataFrame) -> str:
+    if "signal" not in df.columns or df.empty:
+        return "NO DATA"
     valid = df[df["signal"].isin(VALID_SIGNALS)]
     return valid["signal"].iloc[-1] if not valid.empty else "NO DATA"
 
 
+def compute_backtest_trades(df: pd.DataFrame, horizon: int = 5) -> pd.DataFrame:
+    """
+    Erzeugt eine Backtest-Tabelle:
+    entry_time, exit_time, signal, reason, entry_price, exit_price, ret_pct, correct
+    """
+    if df.empty or "signal" not in df.columns:
+        return pd.DataFrame()
+
+    rows = []
+    closes = df["close"].values
+    signals = df["signal"].values
+    idx = df.index
+
+    has_reason = "signal_reason" in df.columns
+
+    for i in range(len(df) - horizon):
+        sig = signals[i]
+        if sig not in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
+            continue
+
+        entry = closes[i]
+        exit_ = closes[i + horizon]
+        if entry == 0:
+            continue
+
+        ret = (exit_ - entry) / entry * 100
+        direction = 1 if sig in ["BUY", "STRONG BUY"] else -1
+        correct = (np.sign(ret) * direction) > 0
+        reason = df["signal_reason"].iloc[i] if has_reason else ""
+
+        rows.append(
+            {
+                "entry_time": idx[i],
+                "exit_time": idx[i + horizon],
+                "signal": sig,
+                "reason": reason,
+                "entry_price": entry,
+                "exit_price": exit_,
+                "ret_pct": float(ret),
+                "correct": bool(correct),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def summarize_backtest(df_bt: pd.DataFrame):
+    if df_bt.empty:
+        return {}
+
+    summary = {
+        "total_trades": int(len(df_bt)),
+        "overall_avg_return": float(df_bt["ret_pct"].mean()),
+        "overall_hit_rate": float(df_bt["correct"].mean() * 100),
+    }
+
+    per = []
+    for sig in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
+        sub = df_bt[df_bt["signal"] == sig]
+        if sub.empty:
+            continue
+        per.append(
+            {
+                "Signal": sig,
+                "Trades": len(sub),
+                "Avg Return %": float(sub["ret_pct"].mean()),
+                "Hit Rate %": float(sub["correct"].mean() * 100),
+            }
+        )
+
+    summary["per_type"] = per
+    return summary
+
+
+def signal_color(signal: str) -> str:
+    return {
+        "STRONG BUY": "#00C853",
+        "BUY": "#64DD17",
+        "HOLD": "#9E9E9E",
+        "SELL": "#FF5252",
+        "STRONG SELL": "#D50000",
+        "NO DATA": "#757575",
+    }.get(signal, "#9E9E9E")
+
+
 # ---------------------------------------------------------
-# State
+# SESSION STATE INITIALISIERUNG
 # ---------------------------------------------------------
 def init_state():
     st.session_state.setdefault("selected_symbol", "BTC")
     st.session_state.setdefault("selected_timeframe", DEFAULT_TIMEFRAME)
-    st.session_state.setdefault("ai_chat_history", [])
-
+    st.session_state.setdefault("theme", "Dark")
+    st.session_state.setdefault("backtest_horizon", 5)
+    st.session_state.setdefault("backtest_trades", pd.DataFrame())
+    st.session_state.setdefault("copilot_tab", "summary")
+    st.session_state.setdefault("copilot_question", "")
 
 
 # ---------------------------------------------------------
-# MAIN UI
+# HAUPT UI / STREAMLIT APP
 # ---------------------------------------------------------
 def main():
     init_state()
 
-    if st_autorefresh:
-        st_autorefresh(interval=60000, key="auto")
+    # Auto-Refresh (TradingView Feel)
+    if st_autorefresh is not None:
+        st_autorefresh(interval=60 * 1000, key="refresh")
 
-    # Sidebar
+    # Sidebar: Theme Toggle
     st.sidebar.title("⚙️ Einstellungen")
-    theme = st.sidebar.radio("Theme", ["Dark", "Light"])
+    theme = st.sidebar.radio(
+        "Theme",
+        ["Dark", "Light"],
+        index=0 if st.session_state.theme == "Dark" else 1,
+    )
+    st.session_state.theme = theme
+
     st.markdown(DARK_CSS if theme == "Dark" else LIGHT_CSS, unsafe_allow_html=True)
 
-    # Header
+    # Header Bar
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     st.markdown(
         f"""
-        <div class="tv-card">
-            <div style="font-size:1.2rem; font-weight:600;">Crypto Live + AI CoPilot</div>
-            <div style="opacity:0.7;">Update: {now}</div>
+        <div class="tv-card" style="margin-bottom: 0.4rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <div class="tv-title">Crypto Live + AI CoPilot</div>
+                    <div style="font-size:1.05rem; font-weight:600;">
+                        TradingView Style • Desktop • KI-Unterstützung
+                    </div>
+                </div>
+                <div style="text-align:right; font-size:0.8rem; opacity:0.8;">
+                    Datenquelle: Bitfinex Spot<br/>
+                    Update: {now}
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    col_left, col_right = st.columns([2, 5], gap="large")
+    # Layout: Links Markt / Charts, Rechts KI-Copilot
+    col_left, col_right = st.columns([3, 2], gap="medium")
 
     # ---------------------------------------------------------
-    # LEFT PANEL — WATCHLIST
+    # WATCHLIST + CHARTS (LINKS)
     # ---------------------------------------------------------
     with col_left:
-        st.markdown('<div class="tv-card"><div class="tv-title">Watchlist</div>', unsafe_allow_html=True)
+        # WATCHLIST
+        with st.container():
+            st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+            st.markdown('<div class="tv-title">Watchlist</div>', unsafe_allow_html=True)
 
-        choice = st.radio(
-            "Symbol",
-            list(SYMBOLS.keys()),
-            index=list(SYMBOLS.keys()).index(st.session_state.selected_symbol),
-            label_visibility="collapsed",
-        )
-        st.session_state.selected_symbol = choice
+            sel = st.radio(
+                "Symbol",
+                list(SYMBOLS.keys()),
+                index=list(SYMBOLS.keys()).index(st.session_state.selected_symbol),
+                label_visibility="collapsed",
+                horizontal=True,
+            )
+            st.session_state.selected_symbol = sel
 
-        rows = []
-        tf = st.session_state.selected_timeframe
-        limit_watch = candles_for_history(TIMEFRAMES[tf])
+            rows = []
+            selected_tf_label = st.session_state.selected_timeframe
+            selected_tf_internal = TIMEFRAMES[selected_tf_label]
+            limit_watch = candles_for_history(selected_tf_internal, years=YEARS_HISTORY)
 
-        for lbl, sym in SYMBOLS.items():
+            for label, sym in SYMBOLS.items():
+                try:
+                    price, chg_pct = fetch_ticker_24h(sym)
+                    try:
+                        df_tmp = cached_fetch_klines(sym, selected_tf_internal, limit=limit_watch)
+                        df_tmp = compute_indicators(df_tmp)
+                        df_tmp = compute_signals(df_tmp)
+                        sig = latest_signal(df_tmp)
+                    except Exception:
+                        sig = "NO DATA"
+
+                    rows.append(
+                        {
+                            "Symbol": label,
+                            "Price": price,
+                            "Change %": chg_pct,
+                            "Signal": sig,
+                        }
+                    )
+                except Exception:
+                    rows.append(
+                        {
+                            "Symbol": label,
+                            "Price": np.nan,
+                            "Change %": np.nan,
+                            "Signal": "NO DATA",
+                        }
+                    )
+
+            df_watch = pd.DataFrame(rows).set_index("Symbol")
+
+            def highlight(row):
+                theme_local = st.session_state.theme
+                if row.name == st.session_state.selected_symbol:
+                    bg = "#111827" if theme_local == "Dark" else "#D1D5DB"
+                    fg = "white" if theme_local == "Dark" else "black"
+                    return [f"background-color:{bg}; color:{fg}"] * len(row)
+                return [""] * len(row)
+
+            styled = df_watch.style.apply(highlight, axis=1).format(
+                {"Price": "{:,.2f}", "Change %": "{:+.2f}"}
+            )
+
+            st.dataframe(styled, use_container_width=True, height=220)
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # CHART-BEREICH
+        st.markdown("")
+        with st.container():
+            st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+
+            symbol_label = st.session_state.selected_symbol
+            symbol = SYMBOLS[symbol_label]
+            tf_label = st.session_state.selected_timeframe
+            interval_internal = TIMEFRAMES[tf_label]
+
+            st.markdown('<div class="tv-title">Chart</div>', unsafe_allow_html=True)
+
+            # Timeframe-Buttons
+            cols_tf = st.columns(len(TIMEFRAMES))
+            for i, tf in enumerate(TIMEFRAMES.keys()):
+                with cols_tf[i]:
+                    if st.button(tf, key=f"tf_{tf}"):
+                        st.session_state.selected_timeframe = tf
+                        st.rerun()
+
+            # Daten abrufen + Date-Picker
             try:
-                price, chg = fetch_ticker_24h(sym)
-                df_tmp = cached_fetch_klines(sym, TIMEFRAMES[tf], limit_watch)
-                df_tmp = compute_indicators(df_tmp)
-                df_tmp = compute_signals(df_tmp)
-                sig = latest_signal(df_tmp)
-            except:
-                price, chg, sig = np.nan, np.nan, "NO DATA"
+                limit_main = candles_for_history(interval_internal, years=YEARS_HISTORY)
 
-            rows.append({"Symbol": lbl, "Price": price, "Change %": chg, "Signal": sig})
+                # komplette Historie laden
+                df_all = cached_fetch_klines(symbol, interval_internal, limit=limit_main)
 
-        df_watch = pd.DataFrame(rows).set_index("Symbol")
-        st.dataframe(df_watch, use_container_width=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+                date_from = None
+                date_to = None
+                mask = None
+
+                if not df_all.empty:
+                    min_date = df_all.index.min().date()
+                    max_date = df_all.index.max().date()
+
+                    default_from = st.session_state.get("date_from", min_date)
+                    default_to = st.session_state.get("date_to", max_date)
+
+                    if default_from < min_date or default_from > max_date:
+                        default_from = min_date
+                    if default_to < min_date or default_to > max_date:
+                        default_to = max_date
+
+                    c_from, c_to = st.columns(2)
+                    with c_from:
+                        date_from = st.date_input(
+                            "📅 Von (Datum)",
+                            value=default_from,
+                            min_value=min_date,
+                            max_value=max_date,
+                            key="date_from",
+                        )
+                    with c_to:
+                        date_to = st.date_input(
+                            "📅 Bis (Datum)",
+                            value=default_to,
+                            min_value=min_date,
+                            max_value=max_date,
+                            key="date_to",
+                        )
+
+                    if date_from > date_to:
+                        date_from, date_to = date_to, date_from
+
+                    mask = (df_all.index.date >= date_from) & (df_all.index.date <= date_to)
+
+                # Indikatoren & Signale auf kompletter Historie
+                if not df_all.empty:
+                    df_all_ind = compute_indicators(df_all.copy())
+                    df_all_ind = compute_signals(df_all_ind)
+
+                    if mask is not None:
+                        df = df_all_ind.loc[mask]
+                    else:
+                        df = df_all_ind.copy()
+                else:
+                    df = pd.DataFrame()
+
+                # Kennzahlen / Stati
+                if df.empty:
+                    sig = "NO DATA"
+                    last_price = 0
+                    change_abs = 0
+                    change_pct = 0
+                    last_time = None
+                    signal_reason = ""
+                    feed_ok = False
+                    error_msg = "Keine Daten im gewählten Zeitraum."
+                else:
+                    sig = latest_signal(df)
+                    last = df.iloc[-1]
+                    prev = df.iloc[-2]
+
+                    last_price = last["close"]
+                    change_abs = last_price - prev["close"]
+                    change_pct = (change_abs / prev["close"]) * 100 if prev["close"] != 0 else 0
+                    last_time = df.index[-1]
+                    signal_reason = last.get("signal_reason", "")
+                    feed_ok = True
+                    error_msg = ""
+
+            except Exception as e:
+                df = pd.DataFrame()
+                sig = "NO DATA"
+                last_price = 0
+                change_abs = 0
+                change_pct = 0
+                last_time = None
+                signal_reason = ""
+                feed_ok = False
+                error_msg = str(e)
+
+            # Top-Kennzahlen
+            k1, k2, k3, k4 = st.columns(4)
+            with k1:
+                st.caption("Preis")
+                st.markdown(f"**{last_price:,.2f} USD**" if feed_ok else "–")
+
+            with k2:
+                st.caption("Change letzte Candle")
+                if feed_ok:
+                    s = "+" if change_abs >= 0 else "-"
+                    st.markdown(f"**{s}{abs(change_abs):.2f} ({s}{abs(change_pct):.2f}%)**")
+                else:
+                    st.markdown("–")
+
+            with k3:
+                st.caption("Signal")
+                reason_html = escape(signal_reason, quote=True)
+                st.markdown(
+                    f'<span class="signal-badge" style="background-color:{signal_color(sig)};" '
+                    f'title="{reason_html}">{sig}</span>',
+                    unsafe_allow_html=True,
+                )
+
+            with k4:
+                st.caption("Status")
+                if feed_ok:
+                    st.markdown("🟢 **Live**")
+                    if last_time is not None:
+                        st.caption(f"Letzte Candle: {last_time}")
+                    if date_from and date_to:
+                        st.caption(f"Zeitraum: {date_from} bis {date_to}")
+                else:
+                    st.markdown("🔴 **Fehler**")
+                    st.caption(error_msg[:80])
+
+            st.markdown("---")
+
+            # Gemeinsamer Price+RSI-Chart
+            if not df.empty:
+                fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
+                st.plotly_chart(fig_price_rsi, use_container_width=True)
+            else:
+                st.warning("Keine Daten im gewählten Zeitraum – Zeitraum anpassen oder API/Internet prüfen.")
+
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        # Signal-History + Backtest
+        st.markdown("")
+        col_hist, col_bt = st.columns([3, 2])
+
+        # Signal-History Panel
+        with col_hist:
+            with st.container():
+                st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+                st.markdown('<div class="tv-title">Signal History</div>', unsafe_allow_html=True)
+
+                if df.empty:
+                    st.info("Keine Signale verfügbar.")
+                else:
+                    allow = st.multiselect(
+                        "Signale anzeigen",
+                        ["STRONG BUY", "BUY", "SELL", "STRONG SELL"],
+                        default=["STRONG BUY", "BUY", "SELL", "STRONG SELL"],
+                    )
+                    st.plotly_chart(
+                        create_signal_history_figure(df, allow, theme),
+                        use_container_width=True,
+                    )
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        # Backtest Panel
+        with col_bt:
+            with st.container():
+                st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+                st.markdown('<div class="tv-title">Backtest</div>', unsafe_allow_html=True)
+
+                if df.empty:
+                    st.info("Keine Daten.")
+                else:
+                    horizon = st.slider(
+                        "Halte-Dauer (Kerzen)",
+                        1,
+                        20,
+                        value=st.session_state.backtest_horizon,
+                    )
+                    st.session_state.backtest_horizon = horizon
+
+                    bt = compute_backtest_trades(df, horizon)
+                    st.session_state.backtest_trades = bt
+
+                    stats = summarize_backtest(bt)
+
+                    if not stats:
+                        st.info("Keine verwertbaren Trades.")
+                    else:
+                        st.markdown(f"**Trades gesamt:** {stats['total_trades']}")
+                        st.markdown(f"**Ø Return:** {stats['overall_avg_return']:.2f}%")
+                        st.markdown(f"**Trefferquote:** {stats['overall_hit_rate']:.1f}%")
+
+                        if stats.get("per_type"):
+                            st.markdown("---")
+                            st.caption("Pro Signal:")
+                            st.table(pd.DataFrame(stats["per_type"]))
+
+                st.markdown("</div>", unsafe_allow_html=True)
+
+        # TRADES LIST – MIT CSV EXPORT
+        st.markdown("")
+        with st.container():
+            st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+            st.markdown('<div class="tv-title">Trades List (Backtest)</div>', unsafe_allow_html=True)
+
+            bt = st.session_state.backtest_trades
+
+            if bt.empty:
+                st.info("Noch keine Trades.")
+            else:
+                df_show = bt.copy()
+                df_show["entry_time"] = df_show["entry_time"].dt.strftime("%Y-%m-%d %H:%M")
+                df_show["exit_time"] = df_show["exit_time"].dt.strftime("%Y-%m-%d %H:%M")
+                df_show["ret_pct"] = df_show["ret_pct"].map(lambda x: f"{x:.2f}")
+                df_show["correct"] = df_show["correct"].map(lambda x: "✅" if x else "❌")
+
+                cols = [
+                    "entry_time",
+                    "exit_time",
+                    "signal",
+                    "reason",
+                    "entry_price",
+                    "exit_price",
+                    "ret_pct",
+                    "correct",
+                ]
+                df_show = df_show[[c for c in cols if c in df_show.columns]]
+
+                st.dataframe(df_show, use_container_width=True, height=220)
+
+                csv = bt.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "📥 CSV Export",
+                    csv,
+                    file_name=f"trades_{symbol_label}_{tf_label}.csv",
+                    mime="text/csv",
+                )
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------------------------------------------------------
-    # RIGHT PANEL — CHART + AI COPILOT
+    # RECHTS: KI-COPILOT
     # ---------------------------------------------------------
     with col_right:
-        st.markdown('<div class="tv-card"><div class="tv-title">Chart</div>', unsafe_allow_html=True)
+        with st.container():
+            st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+            st.markdown('<div class="tv-title">🤖 KI-CoPilot</div>', unsafe_allow_html=True)
 
-        # Timeframe buttons
-        cols_tf = st.columns(len(TIMEFRAMES))
-        for i, tf_key in enumerate(TIMEFRAMES):
-            if cols_tf[i].button(tf_key):
-                st.session_state.selected_timeframe = tf_key
-                st.rerun()
+            if df.empty:
+                st.info("Keine Marktdaten geladen – bitte zuerst einen gültigen Zeitraum wählen.")
+                st.markdown("</div>", unsafe_allow_html=True)
+                return
 
-        # Load chart data
-        try:
-            symbol = SYMBOLS[st.session_state.selected_symbol]
-            tf = st.session_state.selected_timeframe
-            interval_internal = TIMEFRAMES[tf]
-            limit = candles_for_history(interval_internal)
+            # 1) Auto-Kurzkommentar
+            trend = detect_trend(df)
+            rsi_div = detect_rsi_divergence(df)
+            vol = detect_volume_spike(df)  # <--- HIER war vorher detect_volatility(df)
 
-            df_all = cached_fetch_klines(symbol, interval_internal, limit)
-            df_all = compute_indicators(df_all)
-            df_all = compute_signals(df_all)
-
-            df = df_all
-            feed_ok = True
-        except Exception as e:
-            df = pd.DataFrame()
-            feed_ok = False
-            st.error(str(e))
-
-        # Chart
-        if not df.empty:
-            fig = create_price_rsi_figure(df, st.session_state.selected_symbol, tf, theme)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.warning("Keine Daten.")
-
-        st.markdown("</div>", unsafe_allow_html=True)
-    # ---------------------------------------------------------
-    # KI-ANALYSE PANEL
-    # ---------------------------------------------------------
-    st.markdown("")
-
-    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
-    st.markdown('<div class="tv-title">🤖 KI-Analyse</div>', unsafe_allow_html=True)
-
-    if not df.empty:
-        # --- 1) Automatische Indikatoranalyse ---
-        trend = detect_trend(df)
-        rsi_div = detect_rsi_divergence(df)
-        vol = detect_volatility(df)
-
-        # --- 2) GPT-Marktkommentar ---
-        ai_comment = market_commentary(
-            df=df,
-            symbol=st.session_state.selected_symbol,
-            timeframe=st.session_state.selected_timeframe,
-            trend=trend,
-            rsi_divergence=rsi_div,
-            volatility=vol,
-        )
-
-        st.markdown(
-            f"""
-            <div class="ai-box">
-                <b>📊 Automatische Marktanalyse</b><br><br>
-                {ai_comment}
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # Manuelles Aktualisieren
-        if st.button("🔍 KI-Analyse aktualisieren"):
-            st.rerun()
-
-    else:
-        st.info("Keine Daten für KI-Analyse.")
-    st.markdown("</div>", unsafe_allow_html=True)
-
-
-
-    # ---------------------------------------------------------
-    # KI-COPILOT CHAT
-    # ---------------------------------------------------------
-    st.markdown("")
-    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
-    st.markdown('<div class="tv-title">🧠 KI-CoPilot Chat</div>', unsafe_allow_html=True)
-
-    st.markdown("""
-        Stelle Fragen wie:<br>
-        • „Ist das ein möglicher Breakout?“<br>
-        • „Bewerte den Trend.“<br>
-        • „Ist jetzt ein guter Zeitpunkt zum Einstieg?“<br>
-        • „Was sagt das Volumen?“<br>
-    """, unsafe_allow_html=True)
-
-    # Chatverlauf anzeigen
-    for msg in st.session_state.ai_chat_history:
-        who, text = msg["role"], msg["content"]
-        bubble_color = "#1e293b" if theme == "Dark" else "#e2e8f0"
-        align = "left" if who == "assistant" else "right"
-
-        st.markdown(
-            f"""
-            <div style='text-align:{align}; margin:6px 0;'>
-                <div style='display:inline-block; padding:8px 12px; 
-                            background:{bubble_color}; border-radius:8px; 
-                            max-width:80%;'
-                >
-                    {text}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # Eingabefeld
-    user_msg = st.text_input("Deine Frage an den CoPilot:")
-    if st.button("Senden"):
-        if user_msg.strip():
-            st.session_state.ai_chat_history.append(
-                {"role": "user", "content": user_msg}
+            auto_text = market_commentary(
+                symbol=symbol_label,
+                timeframe=tf_label,
+                trend=trend,
+                rsi_divergence=rsi_div,
+                volatility=vol,
             )
 
-            # Antwort vom CoPilot
-            answer = ask_copilot(user_msg, df)
-            st.session_state.ai_chat_history.append(
-                {"role": "assistant", "content": answer}
+            st.markdown(f"**Auto-Analyse ({symbol_label} – {tf_label})**")
+            st.write(auto_text)
+
+            st.markdown("---")
+
+            # 2) Interaktiver Chat mit CoPilot
+            st.markdown("**Frag den CoPilot** – z.B.:")
+            st.caption("„Wie würdest du den aktuellen BTC-Chart interpretieren?“")
+            st.caption("„Welche Risiken siehst du im aktuellen Setup?“")
+
+            question = st.text_area(
+                "Deine Frage an den KI-CoPilot",
+                value=st.session_state.copilot_question,
+                height=80,
             )
+            st.session_state.copilot_question = question
 
-            st.rerun()
+            if st.button("Antwort vom CoPilot holen"):
+                if not question.strip():
+                    st.warning("Bitte zuerst eine Frage eingeben.")
+                else:
+                    with st.spinner("CoPilot denkt nach..."):
+                        answer = ask_copilot(
+                            question=question,
+                            symbol=symbol_label,
+                            timeframe=tf_label,
+                            df=df,
+                            last_signal=sig,
+                        )
+                    st.markdown("**Antwort:**")
+                    st.write(answer)
 
-    st.markdown("</div>", unsafe_allow_html=True)
-
+            st.markdown("</div>", unsafe_allow_html=True)
 
 
 # ---------------------------------------------------------
-# MAIN ENTRY
+# LAUNCH
 # ---------------------------------------------------------
 if __name__ == "__main__":
     main()
