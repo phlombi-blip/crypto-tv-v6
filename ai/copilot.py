@@ -1,24 +1,36 @@
 # ai/copilot.py
 
+import streamlit as st
 from openai import OpenAI
 
-client = OpenAI()
+# OpenAI-Client mit API-Key aus Streamlit-Secrets
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-def ask_copilot(question, df, symbol, timeframe):
+def ask_copilot(question, df, symbol, timeframe, last_signal=None):
     """
     KI-CoPilot analysiert den Chart und beantwortet Fragen.
+    question: Frage des Users (Text)
+    df: DataFrame mit Chart-/Indikator-Daten
+    symbol: z.B. "BTC"
+    timeframe: z.B. "1h"
+    last_signal: optional, z.B. "BUY" / "SELL"
     """
 
     if df is None or df.empty:
         chart_summary = "Keine Daten verfügbar."
     else:
         chart_summary = (
-            f"Last Close: {df['close'].iloc[-1]:.2f}\n"
+            f"Letzter Schlusskurs: {df['close'].iloc[-1]:.2f}\n"
             f"RSI14: {df['rsi14'].iloc[-1]:.2f}\n"
             f"EMA20: {df['ema20'].iloc[-1]:.2f}\n"
             f"EMA50: {df['ema50'].iloc[-1]:.2f}\n"
             f"MA200: {df['ma200'].iloc[-1]:.2f}\n"
         )
+
+    if last_signal is None:
+        last_signal_txt = "Kein explizites Handelssignal übergeben."
+    else:
+        last_signal_txt = f"Aktuelles Handelssignal des Systems: {last_signal}"
 
     prompt = f"""
 Du bist ein professioneller Trading-Assistent. Analysiere den Chart basierend auf:
@@ -26,13 +38,16 @@ Du bist ein professioneller Trading-Assistent. Analysiere den Chart basierend au
 Symbol: {symbol}
 Timeframe: {timeframe}
 
-Chart-Daten:
+Chart-Daten (letzte Kerze):
 {chart_summary}
+
+{last_signal_txt}
 
 User-Frage:
 {question}
 
-Gib klare, präzise Hinweise und erkläre Trading-Kontext.
+Gib klare, präzise Hinweise, sprich in einfachen Worten
+und erkläre unbedingt den Trading-Kontext (Risiken, Szenarien, kein Finanzrat).
 """
 
     try:
@@ -40,9 +55,9 @@ Gib klare, präzise Hinweise und erkläre Trading-Kontext.
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "Du bist ein TradingView-Chart-Experte."},
-                {"role": "user", "content": prompt}
+                {"role": "user", "content": prompt},
             ],
-            max_tokens=400
+            max_tokens=400,
         )
 
         return response.choices[0].message.content
