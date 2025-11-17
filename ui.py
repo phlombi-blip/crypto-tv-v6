@@ -527,6 +527,22 @@ with st.container():
     st.markdown('<div class="tv-card">', unsafe_allow_html=True)
     st.markdown('<div class="tv-title">🤖 KI Insights</div>', unsafe_allow_html=True)
 
+    # 🔧 Fix: Falls Variablen noch nicht definiert sind
+    try:
+        symbol_label = st.session_state.selected_symbol
+    except:
+        symbol_label = "BTC"
+
+    try:
+        tf_label = st.session_state.selected_timeframe
+    except:
+        tf_label = "1d"
+
+    # Platzhalter, bis echte Werte später im Code berechnet werden
+    trend = None
+    rsi_div = None
+    vol = None
+
     try:
         auto_text = market_commentary(
             symbol=symbol_label,
