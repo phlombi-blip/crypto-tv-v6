@@ -1,60 +1,104 @@
-# ai/analyzers.py
-import numpy as np
+    # ---------------------------------------------------------
+    # KI-ANALYSE PANEL
+    # ---------------------------------------------------------
+    st.markdown("")
+
+    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+    st.markdown('<div class="tv-title">🤖 KI-Analyse</div>', unsafe_allow_html=True)
+
+    if not df.empty:
+        # --- 1) Automatische Indikatoranalyse ---
+        trend = detect_trend(df)
+        rsi_div = detect_rsi_divergence(df)
+        vol = detect_volatility(df)
+
+        # --- 2) GPT-Marktkommentar ---
+        ai_comment = market_commentary(
+            df=df,
+            symbol=st.session_state.selected_symbol,
+            timeframe=st.session_state.selected_timeframe,
+            trend=trend,
+            rsi_divergence=rsi_div,
+            volatility=vol,
+        )
+
+        st.markdown(
+            f"""
+            <div class="ai-box">
+                <b>📊 Automatische Marktanalyse</b><br><br>
+                {ai_comment}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Manuelles Aktualisieren
+        if st.button("🔍 KI-Analyse aktualisieren"):
+            st.rerun()
+
+    else:
+        st.info("Keine Daten für KI-Analyse.")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
-def detect_trend(df):
-    if df.empty:
-        return "unknown"
 
-    last = df.iloc[-1]
-    ema20 = last["ema20"]
-    ema50 = last["ema50"]
-    ma200 = last["ma200"]
-    price = last["close"]
+    # ---------------------------------------------------------
+    # KI-COPILOT CHAT
+    # ---------------------------------------------------------
+    st.markdown("")
+    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+    st.markdown('<div class="tv-title">🧠 KI-CoPilot Chat</div>', unsafe_allow_html=True)
 
-    if price > ema20 > ema50 and price > ma200:
-        return "strong_uptrend"
-    if price > ema20 and ema20 > ema50:
-        return "uptrend"
-    if price < ema20 and ema20 < ema50:
-        return "downtrend"
-    return "neutral"
+    st.markdown("""
+        Stelle Fragen wie:<br>
+        • „Ist das ein möglicher Breakout?“<br>
+        • „Bewerte den Trend.“<br>
+        • „Ist jetzt ein guter Zeitpunkt zum Einstieg?“<br>
+        • „Was sagt das Volumen?“<br>
+    """, unsafe_allow_html=True)
+
+    # Chatverlauf anzeigen
+    for msg in st.session_state.ai_chat_history:
+        who, text = msg["role"], msg["content"]
+        bubble_color = "#1e293b" if theme == "Dark" else "#e2e8f0"
+        align = "left" if who == "assistant" else "right"
+
+        st.markdown(
+            f"""
+            <div style='text-align:{align}; margin:6px 0;'>
+                <div style='display:inline-block; padding:8px 12px; 
+                            background:{bubble_color}; border-radius:8px; 
+                            max-width:80%;'
+                >
+                    {text}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # Eingabefeld
+    user_msg = st.text_input("Deine Frage an den CoPilot:")
+    if st.button("Senden"):
+        if user_msg.strip():
+            st.session_state.ai_chat_history.append(
+                {"role": "user", "content": user_msg}
+            )
+
+            # Antwort vom CoPilot
+            answer = ask_copilot(user_msg, df)
+            st.session_state.ai_chat_history.append(
+                {"role": "assistant", "content": answer}
+            )
+
+            st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
-def detect_volatility(df):
-    if df.empty:
-        return "unknown"
 
-    last = df.iloc[-1]
-    bb_width = (last["bb_up"] - last["bb_lo"]) / last["bb_mid"] if last["bb_mid"] != 0 else 0
-
-    if bb_width > 0.18:
-        return "high"
-    if bb_width < 0.07:
-        return "low"
-    return "normal"
-
-
-def detect_rsi_divergence(df):
-    """
-    Simple divergence detection:
-    Preis macht neues Tief/Hoch, RSI nicht.
-    """
-    if len(df) < 20:
-        return "none"
-
-    closes = df["close"].values[-10:]
-    rsi = df["rsi14"].values[-10:]
-
-    price_low_new = closes[-1] < np.min(closes[:-1])
-    rsi_low_new = rsi[-1] < np.min(rsi[:-1])
-
-    price_high_new = closes[-1] > np.max(closes[:-1])
-    rsi_high_new = rsi[-1] > np.max(rsi[:-1])
-
-    if price_low_new and not rsi_low_new:
-        return "bullish_divergence"
-    if price_high_new and not rsi_high_new:
-        return "bearish_divergence"
-
-    return "none"
+# ---------------------------------------------------------
+# MAIN ENTRY
+# ---------------------------------------------------------
+if __name__ == "__main__":
+    main()
