@@ -6,8 +6,6 @@ from datetime import datetime
 from html import escape  # für sichere Tooltips
 
 # KI-CoPilot Module
-from ai.analyzers import detect_trend, detect_rsi_divergence, detect_volume_spike
-from ai.commentary import market_commentary
 from ai.copilot import ask_copilot
 
 from charts import create_price_rsi_figure, create_signal_history_figure
@@ -952,7 +950,7 @@ def main():
             st.markdown("</div>", unsafe_allow_html=True)
 
     # ---------------------------------------------------------
-    # RECHTS: KI-COPILOT (aufgeräumt, mit Tabs)
+    # RECHTS: KI-COPILOT (Auto-Analyse = CoPilot)
     # ---------------------------------------------------------
     with col_right:
         with st.container():
@@ -964,21 +962,77 @@ def main():
                 st.markdown("</div>", unsafe_allow_html=True)
                 return
 
-            # Analyse-Grundlagen aus den Chart-Daten
-            trend = detect_trend(df)
-            rsi_div = detect_rsi_divergence(df)
-            vol = detect_volume_spike(df)
+            # Key für Auto-Analyse im Session-State (pro Symbol + Timeframe)
+            auto_key = f"copilot_auto_{symbol_label}_{tf_label}"
 
-            auto_text = market_commentary(
-                symbol=symbol_label,
-                timeframe=tf_label,
-                trend=trend,
-                rsi_divergence=rsi_div,
-                volatility=vol,
-            )
+            def run_auto_analysis():
+                """Startet eine automatische CoPilot-Analyse und speichert das Ergebnis im Session State."""
+                with st.spinner("CoPilot analysiert den Chart..."):
+                    st.session_state[auto_key] = ask_copilot(
+                        question=(
+                            "Erstelle eine kompakte, neutrale technische Analyse des aktuellen Charts. "
+                            "Konzentriere dich auf Trend, Momentum (RSI), Volumen, grobe Unterstützungs- und "
+                            "Widerstandsbereiche sowie mögliche bullische und bärische Szenarien. "
+                            "Weise ausdrücklich darauf hin, dass dies keine Finanzberatung ist."
+                        ),
+                        df=df,
+                        symbol=symbol_label,
+                        timeframe=tf_label,
+                        last_signal=sig,
+                    )
 
-            # Tabs: links Auto-Analyse, rechts Chat
-            tab_auto, tab_chat = st.tabs(["📊 Auto-Analyse", "💬 KI-Chat"])
+            # Beim ersten Aufruf für dieses Symbol/TF automatisch Analyse holen
+            if auto_key not in st.session_state:
+                run_auto_analysis()
+
+            auto_text = st.session_state.get(auto_key, "Noch keine Analyse verfügbar.")
+
+            # Tabs: links Auto-Analyse (CoPilot), rechts Chat
+            tab_auto, tab_chat = st.tabs(["📊 Auto-Analyse (CoPilot)", "💬 KI-Chat"])
+
+            # --- TAB 1: Auto-Analyse / Insights (nur CoPilot) ---
+            with tab_auto:
+                st.markdown(f"**Automatische KI-Analyse ({symbol_label} – {tf_label})**")
+                st.write(auto_text)
+
+                # Button zum manuell Neuberechnen
+                if st.button(
+                    "🔄 Analyse aktualisieren",
+                    key=f"btn_reanalyse_{symbol_label}_{tf_label}",
+                ):
+                    run_auto_analysis()
+                    # neuen Text direkt anzeigen
+                    st.write(st.session_state.get(auto_key, "Analyse fehlgeschlagen."))
+
+            # --- TAB 2: Interaktiver KI-Chat ---
+            with tab_chat:
+                st.markdown("**Frag den CoPilot** – z.B.:")
+                st.caption("„Wie würdest du den aktuellen BTC-Chart interpretieren?“")
+                st.caption("„Welche Risiken siehst du im aktuellen Setup?“")
+
+                question = st.text_area(
+                    "Deine Frage an den KI-CoPilot",
+                    value=st.session_state.get("copilot_question", ""),
+                    height=80,
+                )
+                st.session_state.copilot_question = question
+
+                if st.button("Antwort vom CoPilot holen", key="btn_copilot_chat"):
+                    if not question.strip():
+                        st.warning("Bitte zuerst eine Frage eingeben.")
+                    else:
+                        with st.spinner("CoPilot denkt nach..."):
+                            answer = ask_copilot(
+                                question=question,
+                                symbol=symbol_label,
+                                timeframe=tf_label,
+                                df=df,
+                                last_signal=sig,
+                            )
+                        st.markdown("**Antwort:**")
+                        st.write(answer)
+
+            st.markdown("</div>", unsafe_allow_html=True)
 
             # --- TAB 1: Auto-Analyse / Insights ---
             with tab_auto:
