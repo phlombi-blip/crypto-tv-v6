@@ -1,69 +1,126 @@
 # ai/copilot.py
+"""
+KI-CoPilot für die Trading-View-App.
 
+Diese Version nutzt die kostenlose Groq-API.
+Erwartet einen API-Key in
+
+  - Streamlit Secrets: st.secrets["GROQ_API_KEY"]
+    oder
+  - Umgebungsvariable: GROQ_API_KEY
+
+Hinweis:
+- Du brauchst einen Account unter https://console.groq.com
+- Dort einen API-Key erstellen und in Streamlit Cloud unter "Secrets" hinterlegen.
 """
-KI-CoPilot auf Basis von Groq (statt OpenAI).
-Die Schnittstelle (ask_copilot) bleibt unverändert, damit ui.py
-ohne Änderungen weiter funktioniert.
-"""
+
+import os
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
+from groq import Groq
 
-from .llm import groq_chat
+
+def _get_api_key() -> Optional[str]:
+    """Liest den Groq API-Key aus Secrets/Env."""
+    # st.secrets.get(...) ist robust, wenn Key fehlt
+    key = None
+    try:
+        key = st.secrets.get("GROQ_API_KEY", None)
+    except Exception:
+        key = None
+
+    return key or os.getenv("GROQ_API_KEY")
+
+
+_api_key = _get_api_key()
+if not _api_key:
+    # Bewusst klare Meldung – die App läuft trotzdem weiter,
+    # aber der CoPilot wird einen Fehlertext zurückgeben.
+    st.warning(
+        "⚠️ Kein Groq API-Key gefunden. "
+        "Bitte in Streamlit unter 'Secrets' einen Eintrag `GROQ_API_KEY = "gsk_..."` anlegen "
+        "oder die Umgebungsvariable GROQ_API_KEY setzen."
+    )
+    _client: Optional[Groq] = None
+else:
+    _client = Groq(api_key=_api_key)
+
+
+def _build_chart_summary(df: Optional[pd.DataFrame]) -> str:
+    """Extrahiert ein paar Kennzahlen aus dem DataFrame für den Prompt."""
+    if df is None or df.empty:
+        return "Keine Daten verfügbar."
+
+    last = df.iloc[-1]
+
+    def get(col, fmt="{:.2f}"):
+        if col not in df.columns:
+            return "n/a"
+        try:
+            return fmt.format(float(last[col]))
+        except Exception:
+            return "n/a"
+
+    parts = [
+        f"Letzter Schlusskurs: {get('close')} USD",
+        f"RSI14: {get('rsi14')}",
+        f"EMA20: {get('ema20')}",
+        f"EMA50: {get('ema50')}",
+        f"MA200: {get('ma200')}",
+        f"Bollinger-Oberband: {get('bb_up')}",
+        f"Bollinger-Unterband: {get('bb_low')}",
+    ]
+    return "\n".join(parts)
 
 
 def ask_copilot(question, df, symbol, timeframe, last_signal=None):
     """
-    KI-CoPilot analysiert den Chart und beantwortet Fragen.
+    KI-CoPilot analysiert den Chart und beantwortet Fragen (über Groq / Llama 3).
 
     Parameters
     ----------
     question : str
-        Nutzerfrage.
+        User-Frage aus dem UI.
     df : pd.DataFrame
-        DataFrame mit mindestens den Spalten close, rsi14, ema20, ema50, ma200.
+        Chart-Daten mit Indikatoren.
     symbol : str
-        Symbol-Label (z.B. 'BTC/USD').
+        Symbol-Bezeichnung (z.B. BTCUSD).
     timeframe : str
-        Timeframe-Label (z.B. '1h').
+        Timeframe-Label (z.B. 1h, 4h, 1d).
     last_signal : str | None
-        Optional letztes Handelssignal des Systems.
+        Letztes Handelssignal (BUY/SELL/...), falls vorhanden.
     """
-    if df is None or df.empty:
-        chart_summary = "Keine Daten verfügbar."
-    else:
-        def _val(col):
-            try:
-                return float(df[col].iloc[-1])
-            except Exception:
-                return float("nan")
+    if not question or not str(question).strip():
+        return "Bitte zuerst eine Frage eingeben."
 
-        last_close = _val("close")
-        rsi14 = _val("rsi14")
-        ema20 = _val("ema20")
-        ema50 = _val("ema50")
-        ma200 = _val("ma200")
-
-        chart_summary = (
-            f"Last Close: {last_close:.2f}\n"
-            f"RSI14: {rsi14:.2f}\n"
-            f"EMA20: {ema20:.2f}\n"
-            f"EMA50: {ema50:.2f}\n"
-            f"MA200: {ma200:.2f}\n"
+    if _client is None:
+        return (
+            "❌ KI Fehler: Kein Groq API-Key konfiguriert. "
+            "Bitte `GROQ_API_KEY` in Streamlit Secrets oder als Umgebungsvariable setzen."
         )
 
-    if not last_signal:
-        last_signal_txt = "Kein explizites Handelssignal übergeben."
-    else:
-        last_signal_txt = f"Aktuelles Handelssignal des Systems: {last_signal}"
+    chart_summary = _build_chart_summary(df)
+    last_signal_txt = (
+        f"Letztes Handelssignal: {last_signal}"
+        if last_signal
+        else "Kein explizites Handelssignal vorhanden."
+    )
 
-    prompt = f"""
-Du bist ein professioneller Trading-Assistent. Analysiere den Chart basierend auf:
+    system_prompt = (
+        "Du bist ein erfahrener TradingView-Chart-Experte für Kryptowährungen. "
+        "Du arbeitest mit Candlestick-Charts, RSI, EMAs, MA200, Bollinger-Bändern "
+        "und Volumen. Du gibst keine Anlageberatung, sondern erklärst Setups, "
+        "Risiken und mögliche Szenarien so, dass auch fortgeschrittene Einsteiger "
+        "es verstehen."
+    )
 
-Symbol: {symbol}
+    user_prompt = f"""
+Instrument: {symbol}
 Timeframe: {timeframe}
 
-Chart-Zusammenfassung:
+Chart-Daten:
 {chart_summary}
 
 {last_signal_txt}
@@ -71,24 +128,22 @@ Chart-Zusammenfassung:
 User-Frage:
 {question}
 
-Gib klare, präzise Hinweise und erkläre den Trading-Kontext (Risiken, Szenarien, kein Finanzrat).
+Bitte:
+- Beschreibe das aktuelle Setup knapp aber präzise.
+- Gehe auf Trend, Momentum, Volumen und wichtige Levels ein.
+- Nenne mögliche bullische UND bärische Szenarien.
+- Erinnere stets daran, dass es keine Finanzberatung ist.
 """
 
     try:
-        answer = groq_chat(
+        response = _client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
             messages=[
-                {
-                    "role": "system",
-                    "content": "Du bist ein TradingView-Chart-Experte.",
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
             max_completion_tokens=400,
         )
-        return answer
+        return response.choices[0].message.content.strip()
     except Exception as e:
-        st.error(f"Fehler beim Aufruf des KI-Modells (Groq): {e}")
-        return f"❌ KI Fehler: {e}"
+        return f"❌ KI Fehler (Groq): {str(e)}"
