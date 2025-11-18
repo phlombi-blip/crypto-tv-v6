@@ -1036,24 +1036,6 @@ def main():
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-
-            # --- TEST: Email Integration ---
-                st.sidebar.markdown("### 📧 Email Test")
-                if st.sidebar.button("Test-E-Mail senden"):
-                    ok, msg = send_signal_email(
-                        previous_signal="TEST",
-                        new_signal="TEST",
-                        symbol="BTC",
-                        timeframe="1d",
-                        price=12345,
-                        reason="Dies ist ein Test",
-                        when=datetime.utcnow(),
-                    )
-                    if ok:
-                        st.sidebar.success("Test-E-Mail erfolgreich gesendet! (Posteingang checken)")
-                    else:
-                        st.sidebar.error(f"Fehler: {msg}")
-
 # ---------------------------------------------------------
 # LAUNCH
 # ---------------------------------------------------------
