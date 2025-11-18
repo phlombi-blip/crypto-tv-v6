@@ -98,7 +98,23 @@ def _compress_df_for_llm(df: pd.DataFrame, max_rows: int = 200) -> str:
 
     return "\n".join(parts)
 
-
+    def _looks_like_html_error(text: str) -> bool:
+        """
+        Erkenne typische HTML-Fehlerseiten (Cloudflare, 500er, etc.),
+        damit wir sie nicht roh im UI anzeigen.
+        """
+        if not text:
+            return False
+    
+        t = text.strip().lower()
+        return (
+            t.startswith("<!doctype html")
+            or t.startswith("<html")
+            or "cloudflare" in t
+            or "cf-error" in t
+            or "</html>" in t
+        )
+    
 # ---------------------------------------------------------
 # Hauptfunktion: CoPilot-Aufruf
 # ---------------------------------------------------------
@@ -160,18 +176,12 @@ def ask_copilot(
 
         content = response.choices[0].message.content or ""
         stripped = content.strip()
-        lower = stripped.lower()
 
-        # 🔴 Falls Groq/Cloudflare uns eine HTML-Seite als Antwort schickt:
-        if (
-            lower.startswith("<!doctype html")
-            or lower.startswith("<html")
-            or "cloudflare" in lower and "error" in lower
-            or "cf-error" in lower
-        ):
+        # 🔴 Falls Groq/Cloudflare uns eine HTML-Seite als "Antwort" schickt:
+        if _looks_like_html_error(stripped):
             return (
                 "❌ KI Fehler (Groq): Der KI-Dienst hat eine HTML-Fehlerseite "
-                "(vermutlich 5xx / Cloudflare) zurückgegeben.\n"
+                "(z.B. 500 / Cloudflare) zurückgegeben.\n"
                 "Das liegt an der Gegenstelle, nicht an deiner Anfrage. "
                 "Bitte später erneut versuchen."
             )
@@ -182,13 +192,21 @@ def ask_copilot(
         msg = str(e)
         lower_msg = msg.lower()
 
-        # 🔴 HTML / Cloudflare-Fehler im Exception-Text
-        if "<!doctype html" in lower_msg or "<html" in lower_msg:
+        # 🔴 Wenn der Fehlertext selbst nach HTML aussieht → generische, kurze Meldung
+        if _looks_like_html_error(msg):
             return (
                 "❌ KI Fehler (Groq): Der KI-Server hat intern eine HTML-Fehlerseite "
-                "zurückgegeben (Cloudflare / 5xx).\n"
-                "Bitte versuche es später erneut."
+                "(z.B. 500 / Cloudflare) geliefert.\n"
+                "Du kannst daran nichts ändern – der Dienst war vermutlich kurzzeitig "
+                "nicht erreichbar. Bitte später erneut versuchen."
             )
+
+        # Falls die Exception z.B. sowas enthält wie
+        # "... 500 Internal Server Error ... <!DOCTYPE html> ...",
+        # schneiden wir ab dem HTML-Teil weg:
+        if "<!DOCTYPE html" in msg:
+            msg = msg.split("<!DOCTYPE html", 1)[0].strip()
+            lower_msg = msg.lower()
 
         # Token-/Größenlimit
         if "request too large" in lower_msg or "tokens per minute" in lower_msg or "413" in lower_msg:
