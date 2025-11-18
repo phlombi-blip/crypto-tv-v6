@@ -1,3 +1,10 @@
+"""
+ai/llm.py
+
+Groq-Integration für den KI-CoPilot.
+Ersetzt die bisherige OpenAI-Nutzung.
+"""
+
 import os
 from typing import List, Dict, Optional
 
@@ -8,23 +15,35 @@ DEFAULT_GROQ_MODEL = "llama-3.1-8b-instant"
 
 
 def _get_groq_client() -> Groq:
-    """Create Groq client from Streamlit secrets or environment variable."""
-    api_key = st.secrets.get("GROQ_API_KEY") if hasattr(st, "secrets") else None
+    """
+    Erzeugt einen Groq-Client basierend auf GROQ_API_KEY
+    aus Streamlit-Secrets oder Umgebungsvariablen.
+    """
+    api_key = None
+    if hasattr(st, "secrets"):
+        api_key = st.secrets.get("GROQ_API_KEY", None)
     if not api_key:
-        api_key = os.environ.get("GROQ_API_KEY")
+        api_key = os.getenv("GROQ_API_KEY")
+
     if not api_key:
         raise RuntimeError(
-            "GROQ_API_KEY nicht gesetzt. Bitte in secrets.toml oder als Env-Var hinterlegen."
+            "Kein GROQ_API_KEY gefunden. Bitte in Streamlit unter 'Secrets' "
+            "einen Eintrag GROQ_API_KEY = '...' anlegen oder als "
+            "Umgebungsvariable GROQ_API_KEY setzen."
         )
+
     return Groq(api_key=api_key)
 
 
 def groq_chat(
     messages: List[Dict[str, str]],
     model: Optional[str] = None,
-    max_completion_tokens: int = 512,
+    max_completion_tokens: int = 400,
 ) -> str:
-    """Allgemeiner Chat-Aufruf an Groq (ähnlich OpenAI ChatCompletion)."""
+    """
+    Einfacher Wrapper um Groq ChatCompletion.
+    Erwartet eine Liste von Nachrichten im OpenAI-kompatiblen Format.
+    """
     client = _get_groq_client()
     completion = client.chat.completions.create(
         model=model or DEFAULT_GROQ_MODEL,
@@ -32,19 +51,3 @@ def groq_chat(
         max_completion_tokens=max_completion_tokens,
     )
     return completion.choices[0].message.content
-
-
-def groq_market_analysis(context_text: str) -> str:
-    """Spezialisierte Marktanalyse für Auto-Analyse Panel."""
-    system_prompt = (
-        "Du bist ein professioneller Krypto-Trader. "
-        "Analysiere Bitcoin bzw. den gegebenen Marktzustand kurz, klar und auf Deutsch. "
-        "Nutze Trend, Momentum, Volatilität und kann Hinweise zu Chancen/Risiken geben. "
-        "Kein Financial Advice, sondern Szenarien."
-    )
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": context_text},
-    ]
-    return groq_chat(messages)
