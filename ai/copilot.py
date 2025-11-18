@@ -5,7 +5,7 @@ KI-CoPilot für die Trading-View-App.
 Diese Version nutzt die kostenlose Groq-API.
 Erwartet einen API-Key in
 
-  - Streamlit Secrets: st.secrets["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"]
+  - Streamlit Secrets: st.secrets["GROQ_API_KEY"]
     oder
   - Umgebungsvariable: GROQ_API_KEY
 
