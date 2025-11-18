@@ -530,11 +530,9 @@ def init_state():
     st.session_state.setdefault("backtest_horizon", 5)
     st.session_state.setdefault("backtest_trades", pd.DataFrame())
     st.session_state.setdefault("copilot_question", "")
-    # Zeitraum-Defaults in Session halten
-    if "date_from" not in st.session_state:
-        st.session_state["date_from"] = None
-    if "date_to" not in st.session_state:
-        st.session_state["date_to"] = None
+    # Zeitraum-Defaults (nur Platzhalter, Widget steuert diese Keys)
+    st.session_state.setdefault("date_from", None)
+    st.session_state.setdefault("date_to", None)
 
 
 # ---------------------------------------------------------
@@ -568,24 +566,22 @@ def main():
     )
     st.session_state.selected_timeframe = tf_label
 
-    # 2) Zeitraum (nur Werte, min/max setzen wir später nach Daten-Load)
+    # 2) Zeitraum – Widget steuert date_from/date_to in Session State
     st.sidebar.markdown("### Zeitraum")
     today = datetime.utcnow().date()
     default_from = st.session_state.get("date_from") or today
     default_to = st.session_state.get("date_to") or today
 
-    date_from = st.sidebar.date_input(
+    st.sidebar.date_input(
         "📅 Von (Datum)",
         value=default_from,
         key="date_from",
     )
-    date_to = st.sidebar.date_input(
+    st.sidebar.date_input(
         "📅 Bis (Datum)",
         value=default_to,
         key="date_to",
     )
-    st.session_state.date_from = date_from
-    st.session_state.date_to = date_to
 
     # 3) Backtest
     st.sidebar.markdown("### Backtest")
@@ -720,28 +716,23 @@ def main():
                     min_date = df_all.index.min().date()
                     max_date = df_all.index.max().date()
 
-                    # Sidebar-Werte holen und in Datenbereich clampen
+                    # Sidebar-Werte holen (können auch außerhalb des Bereichs liegen)
                     date_from = st.session_state.get("date_from") or min_date
                     date_to = st.session_state.get("date_to") or max_date
 
+                    # Falls out-of-range, einfach lokal clampen – Session State NICHT überschreiben
                     if date_from < min_date:
                         date_from = min_date
-                        st.session_state.date_from = min_date
                     if date_from > max_date:
                         date_from = max_date
-                        st.session_state.date_from = max_date
 
                     if date_to < min_date:
                         date_to = min_date
-                        st.session_state.date_to = min_date
                     if date_to > max_date:
                         date_to = max_date
-                        st.session_state.date_to = max_date
 
                     if date_from > date_to:
                         date_from, date_to = date_to, date_from
-                        st.session_state.date_from = date_from
-                        st.session_state.date_to = date_to
 
                     mask = (df_all.index.date >= date_from) & (df_all.index.date <= date_to)
 
