@@ -633,6 +633,23 @@ def main():
     # Layout: Links Markt / Charts, Rechts KI-Copilot
     col_left, col_right = st.columns([4, 1], gap="medium")
 
+    # --- TEST: Email Integration ---
+    st.sidebar.markdown("### 📧 Email Test")
+    if st.sidebar.button("Test-E-Mail senden"):
+        ok, msg = send_signal_email(
+            previous_signal="TEST",
+            new_signal="TEST",
+            symbol="BTC",
+            timeframe="1d",
+            price=12345,
+            reason="Dies ist ein Test",
+            when=datetime.utcnow(),
+        )
+        if ok:
+            st.sidebar.success("Test-E-Mail erfolgreich gesendet! (Posteingang checken)")
+        else:
+            st.sidebar.error(f"Fehler: {msg}")
+
     # ---------------------------------------------------------
     # WATCHLIST + CHARTS (LINKS)
     # ---------------------------------------------------------
