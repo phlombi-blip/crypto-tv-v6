@@ -285,23 +285,23 @@ def ask_copilot(
     
         "Strukturiere deine Antwort bitte genau in diese 4 Abschnitte:\n\n"
     
-        "**1) Kurzfassung (max. 3 Bulletpoints)**\n"
+        "#### 1) Kurzfassung (max. 3 Bulletpoints)\n"
         "- Maximal 1 Satz pro Bullet.\n"
         "- Fokus: Trend, Risiko, Chance im aktuellen Setup.\n\n"
     
-        "**2) Freie technische Analyse des Charts**\n"
+        "#### 2) Freie technische Analyse des Charts\n"
         "- Beschreibe klar den Trend: EMA20/EMA50 relativ zur MA200.\n"
         "- Bollinger-Bänder (PFLICHT): Lage am oberen/mittleren/unteren Band, Enge/Expansion, Mean-Reversion oder Trendfortsetzung.\n"
         "- Candlesticks (PFLICHT): Mindestens 2 konkrete Muster/Signale (Dochte, Engulfing, Hammer, Shooting Star) – und was sie aussagen.\n"
         "- RSI(14): überkauft/überverkauft, Momentum, Divergenzen.\n"
         "- Unterstützungen/Widerstände: wichtigste Preiszonen.\n\n"
     
-        "**3) Einordnung im Kontext der Strategie**\n"
+        "#### 3) Einordnung im Kontext der Strategie\n"
         "- Ordne das aktuelle Setup einem der fünf Signale zu: STRONG BUY / BUY / SELL / STRONG SELL / HOLD.\n"
         "- Vergleiche diese Einschätzung mit dem Signalscore aus dem System.\n"
         "- Wenn der Kurs unter der MA200 liegt oder die MA200 fehlt, MUSS die Strategie immer HOLD sein.\n\n"
     
-        "**4) Hypothetische, rein technische Handelsidee (keine Anlageberatung)**\n"
+        "#### 4) Hypothetische, rein technische Handelsidee (keine Anlageberatung)\n"
         "- WICHTIG: Wenn der Kurs unter der MA200 liegt → KEINE konkrete Einstiegs-, Stop- oder Zielzone formulieren.\n"
         "- Stattdessen: Nur beschreiben, welche Bedingungen erfüllt sein müssten, damit wieder Long-Setups aktiv wären (z.B. Reclaim MA200).\n"
         "- Wenn der Kurs über MA200 liegt, formuliere eine klassische Idee:\n"
