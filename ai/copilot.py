@@ -1,254 +1,185 @@
 # ai/copilot.py
-# -*- coding: utf-8 -*-
-
 import os
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 import streamlit as st
 from groq import Groq
 
 
-# ------------------------------------------------------------------
-# API-Client
-# ------------------------------------------------------------------
-def _get_api_key() -> Optional[str]:
-    """Liest den Groq API-Key aus Streamlit-Secrets oder Umgebungsvariablen."""
-    key = None
+# ---------------------------------------------------------
+# Groq Client holen (gecacht)
+# ---------------------------------------------------------
+@st.cache_resource
+def get_groq_client() -> Optional[Groq]:
+    api_key = None
 
+    # 1) Streamlit Secrets bevorzugen
     try:
-        key = st.secrets.get("GROQ_API_KEY", None)
+        api_key = st.secrets["groq"]["api_key"]
     except Exception:
-        key = None
+        pass
 
-    if not key:
-        key = os.getenv("GROQ_API_KEY")
+    # 2) Fallback: Umgebungsvariable
+    if not api_key:
+        api_key = os.getenv("GROQ_API_KEY")
 
-    return key
+    if not api_key:
+        return None
 
-
-_api_key = _get_api_key()
-_client: Optional[Groq]
-
-if not _api_key:
-    st.warning(
-        "⚠️ Kein Groq API-Key gefunden. "
-        "Bitte in Streamlit unter 'Secrets' einen Eintrag "
-        "`GROQ_API_KEY = \"gsk_…\"` anlegen oder die Umgebungsvariable "
-        "`GROQ_API_KEY` setzen."
-    )
-    _client = None
-else:
-    _client = Groq(api_key=_api_key)
+    return Groq(api_key=api_key)
 
 
-# ------------------------------------------------------------------
-# Kompakte Chart-Zusammenfassung – OHNE riesige Tabellen
-# ------------------------------------------------------------------
-def _build_chart_summary(df: pd.DataFrame, lookback: int = 150) -> str:
+# ---------------------------------------------------------
+# Daten kompakt für LLM zusammenfassen
+# ---------------------------------------------------------
+def _compress_df_for_llm(df: pd.DataFrame, max_rows: int = 200) -> str:
     """
-    Erzeugt eine extrem kompakte, TA-orientierte Zusammenfassung des Charts
-    basierend auf den letzten N Kerzen.
-    Nutzt Close, RSI(14), EMA20/EMA50, MA200, Bollinger-Bänder und grobe
-    Candlestick-Verteilung – aber nur aggregiert, ohne lange Tabellen.
+    Reduziert den Chart auf ein kompaktes Text-Preview,
+    damit der Prompt klein bleibt und keine 413-Fehler kommen.
     """
     if df is None or df.empty:
-        return "Keine Marktdaten vorhanden."
+        return "Keine Kursdaten verfügbar."
 
-    df_tail = df.tail(lookback).copy()
+    # Nur die letzten max_rows Kerzen verwenden
+    if len(df) > max_rows:
+        df = df.iloc[-max_rows:].copy()
 
-    close = df_tail["close"]
-    last_close = float(close.iloc[-1])
-    first_close = float(close.iloc[0])
-    change_pct = (last_close - first_close) / first_close * 100 if first_close != 0 else 0.0
+    last = df.iloc[-1]
 
-    # RSI
-    rsi = df_tail["rsi14"] if "rsi14" in df_tail.columns else None
-    if rsi is not None and not rsi.isna().all():
-        rsi_now = float(rsi.iloc[-1])
-        rsi_min = float(rsi.min())
-        rsi_max = float(rsi.max())
-        rsi_avg = float(rsi.mean())
-        rsi_oversold = int((rsi < 30).sum())
-        rsi_overbought = int((rsi > 70).sum())
-    else:
-        rsi_now = rsi_min = rsi_max = rsi_avg = None
-        rsi_oversold = rsi_overbought = 0
+    # Basiswerte
+    close = float(last.get("close", float("nan")))
+    rsi = float(last.get("rsi14", float("nan")))
+    ema20 = float(last.get("ema20", float("nan")))
+    ema50 = float(last.get("ema50", float("nan")))
+    ma200 = float(last.get("ma200", float("nan")))
+    bb_mid = float(last.get("bb_mid", float("nan")))
+    bb_up = float(last.get("bb_up", float("nan")))
+    bb_lo = float(last.get("bb_lo", float("nan")))
+    last_signal = str(last.get("signal", "NO DATA"))
 
-    # EMA / MA
-    ema20 = df_tail["ema20"] if "ema20" in df_tail.columns else None
-    ema50 = df_tail["ema50"] if "ema50" in df_tail.columns else None
-    ma200 = df_tail["ma200"] if "ma200" in df_tail.columns else None
+    # Grobe Statistik über den betrachteten Zeitraum
+    close_min = float(df["close"].min())
+    close_max = float(df["close"].max())
+    close_change_pct = (
+        (df["close"].iloc[-1] / df["close"].iloc[0] - 1.0) * 100.0
+        if df["close"].iloc[0] != 0 else 0.0
+    )
 
-    last_ema20 = float(ema20.iloc[-1]) if ema20 is not None and not ema20.isna().all() else None
-    last_ema50 = float(ema50.iloc[-1]) if ema50 is not None and not ema50.isna().all() else None
-    last_ma200 = float(ma200.iloc[-1]) if ma200 is not None and not ma200.isna().all() else None
+    rsi_min = float(df["rsi14"].min()) if "rsi14" in df.columns else float("nan")
+    rsi_max = float(df["rsi14"].max()) if "rsi14" in df.columns else float("nan")
 
-    # Bollinger
-    bb_up = df_tail["bb_up"] if "bb_up" in df_tail.columns else None
-    bb_lo = df_tail["bb_lo"] if "bb_lo" in df_tail.columns else None
-    bb_mid = df_tail["bb_mid"] if "bb_mid" in df_tail.columns else None
+    # Signals-Zusammenfassung
+    sig_counts = {}
+    if "signal" in df.columns:
+        counts = df["signal"].value_counts()
+        for sig, cnt in counts.items():
+            sig_counts[str(sig)] = int(cnt)
 
-    if (
-        bb_up is not None
-        and bb_lo is not None
-        and not bb_up.isna().all()
-        and not bb_lo.isna().all()
-    ):
-        last_bb_up = float(bb_up.iloc[-1])
-        last_bb_lo = float(bb_lo.iloc[-1])
-        last_bb_mid = float(bb_mid.iloc[-1]) if bb_mid is not None else (last_bb_up + last_bb_lo) / 2
-        band_width = (last_bb_up - last_bb_lo) / last_bb_mid if last_bb_mid != 0 else 0.0
-    else:
-        last_bb_up = last_bb_lo = last_bb_mid = band_width = None
-
-    # Volumen
-    vol = df_tail["volume"] if "volume" in df_tail.columns else None
-    if vol is not None and not vol.isna().all():
-        vol_avg = float(vol.mean())
-        vol_max = float(vol.max())
-    else:
-        vol_avg = vol_max = None
-
-    # Candle-Verteilung (bullish / bearish)
-    opens = df_tail["open"]
-    bulls = int((df_tail["close"] > opens).sum())
-    bears = int((df_tail["close"] < opens).sum())
-    neutrals = int((df_tail["close"] == opens).sum())
-
-    # grobe Trendbeschreibung
-    if change_pct > 5:
-        trend = "klar aufwärts (Bullentrend)"
-    elif change_pct < -5:
-        trend = "klar abwärts (Bärentrend)"
-    elif abs(change_pct) <= 1:
-        trend = "seitwärts / Range"
-    else:
-        trend = "leichter Trend, aber nicht extrem"
-
-    lines = [
-        f"Betrachteter Zeitraum: letzte {len(df_tail)} Kerzen.",
-        f"Aktueller Schlusskurs: {last_close:.2f} USD.",
-        f"Veränderung über diesen Zeitraum: {change_pct:.2f} % → {trend}",
-        f"Candlestick-Verteilung: {bulls} bullische, {bears} bärische, {neutrals} neutrale Kerzen.",
+    parts = [
+        f"Aktuelle Candle:",
+        f"- Close: {close:.2f}",
+        f"- RSI14: {rsi:.2f}",
+        f"- EMA20: {ema20:.2f}",
+        f"- EMA50: {ema50:.2f}",
+        f"- MA200: {ma200:.2f}",
+        f"- Bollinger: mid={bb_mid:.2f}, upper={bb_up:.2f}, lower={bb_lo:.2f}",
+        f"- Letztes Signal: {last_signal}",
+        "",
+        "Zeitraum-Zusammenfassung:",
+        f"- Min/Max Close: {close_min:.2f} / {close_max:.2f}",
+        f"- Performance über Zeitraum: {close_change_pct:.2f} %",
+        f"- RSI Spannweite: {rsi_min:.2f} – {rsi_max:.2f}",
     ]
 
-    if rsi_now is not None:
-        lines.append(
-            f"RSI(14): aktuell {rsi_now:.1f}, Minimum {rsi_min:.1f}, Maximum {rsi_max:.1f}, "
-            f"Durchschnitt {rsi_avg:.1f}, "
-            f"{rsi_oversold}x unter 30 (überverkauft), {rsi_overbought}x über 70 (überkauft)."
-        )
-    else:
-        lines.append("RSI(14) ist nicht verfügbar.")
+    if sig_counts:
+        sig_text = ", ".join([f"{k}: {v}" for k, v in sig_counts.items()])
+        parts.append(f"- Signal-Häufigkeit: {sig_text}")
 
-    if last_ema20 is not None and last_ema50 is not None:
-        rel_20 = "über" if last_close > last_ema20 else "unter"
-        rel_50 = "über" if last_close > last_ema50 else "unter"
-        cross = "EMA20 über EMA50" if last_ema20 > last_ema50 else "EMA20 unter EMA50"
-        lines.append(
-            f"EMA20/EMA50: Kurs liegt {rel_20} EMA20 und {rel_50} EMA50, "
-            f"Aktueller Zustand der EMAs: {cross}."
-        )
-
-    if last_ma200 is not None:
-        rel_200 = "über" if last_close > last_ma200 else "unter"
-        lines.append(f"MA200: Kurs liegt {rel_200} der MA200 ({last_ma200:.2f}).")
-
-    if last_bb_up is not None and last_bb_lo is not None:
-        pos = "mittig im Band"
-        if last_close >= last_bb_up:
-            pos = "am oder über dem oberen Band"
-        elif last_close <= last_bb_lo:
-            pos = "am oder unter dem unteren Band"
-        lines.append(
-            f"Bollinger-Bänder(20): Kurs liegt {pos}. Bandbreite relativ: {band_width:.3f}."
-        )
-
-    if vol_avg is not None:
-        lines.append(
-            f"Volumen: Durchschnitt {vol_avg:.2f}, Spitze (max) {vol_max:.2f}."
-        )
-
-    return "\n".join(lines)
+    return "\n".join(parts)
 
 
-# ------------------------------------------------------------------
-# Hauptfunktion für ui.py
-# ------------------------------------------------------------------
+# ---------------------------------------------------------
+# Hauptfunktion: CoPilot-Aufruf
+# ---------------------------------------------------------
 def ask_copilot(
     question: str,
-    df: pd.DataFrame,
     symbol: str,
     timeframe: str,
-    last_signal: Optional[str] = None,
+    df: pd.DataFrame,
+    last_signal: str,
 ) -> str:
     """
-    Fragt den KI-CoPilot (Groq / Llama 3) mit sehr kleinem Chart-Kontext.
+    Ruft Groq als CoPilot auf. Bei Fehlern wird eine kurze,
+    saubere Fehlermeldung zurückgegeben (ohne HTML-Müll).
     """
-    if not question or not str(question).strip():
-        return "Bitte zuerst eine Frage eingeben."
-
-    if _client is None:
+    client = get_groq_client()
+    if client is None:
         return (
-            "❌ KI Fehler: Kein Groq API-Key konfiguriert.\n\n"
-            "Bitte `GROQ_API_KEY` in den Streamlit Secrets oder als "
-            "Umgebungsvariable setzen."
+            "❌ KI nicht verfügbar: Kein Groq API-Key gefunden.\n\n"
+            "Bitte in Streamlit unter `secrets.toml` eintragen:\n"
+            "[groq]\napi_key = \"DEIN_GROQ_KEY_HIER\""
         )
 
-    chart_summary = _build_chart_summary(df, lookback=150)
-    last_signal_txt = (
-        f"Letztes Handelssignal laut System: {last_signal}"
-        if last_signal
-        else "Kein explizites Handelssignal vorhanden."
-    )
+    # Kompakte Beschreibung der Marktdaten für den Prompt
+    df_summary = _compress_df_for_llm(df)
 
+    # Systemprompt: Rolle des CoPiloten
     system_prompt = (
-        "Du bist ein erfahrener technischer Analyst für Kryptowährungen. "
-        "Du interpretierst explizit RSI(14), EMA20, EMA50, MA200, Bollinger-Bänder "
-        "und Candlestick-Strukturen (Trend, Pullbacks, Übertreibungen). "
-        "Du gibst KEINE persönliche Anlageberatung und kennst weder Depotgröße noch Risikoprofil. "
-        "Du darfst aber eine neutrale, hypothetische Handelsidee basierend auf der technischen Lage "
-        "und typischer Marktpsychologie formulieren. "
-        "Diese Idee muss immer klar als unsicheres Szenario dargestellt werden, mit Risiko-Hinweis."
+        "Du bist ein nüchterner technischer Marktanalyst für Kryptowährungen. "
+        "Du nutzt ausschließlich technische Analyse (RSI, EMAs, MA200, Bollinger-Bänder, Candles, Volumen) "
+        "und machst KEINE Finanz- oder Anlageberatung. "
+        "Formuliere klar, strukturiert und eher kurz, ohne unnötige Wiederholungen. "
+        "Wenn du eine 'Handelsidee' beschreibst, mache deutlich, dass es nur ein "
+        "hypothetisches, technisches Beispiel ist."
     )
 
-    user_prompt = f"""
-Instrument: {symbol}
-Timeframe: {timeframe}
-
-{last_signal_txt}
-
-Kompakte Marktzusammenfassung:
-{chart_summary}
-
-Frage des Nutzers:
-{question}
-
-Bitte:
-- Beschreibe das aktuelle Setup kurz und verständlich.
-- Gehe auf Trend, Momentum, Volumen und wichtige Zonen (Unterstützung/Widerstand) ein.
-- Nenne sowohl mögliche bullische als auch bärische Szenarien.
-- Formuliere am Ende eine klar abgegrenzte, rein technische, hypothetische Handelsidee 
-  basierend auf der Marktstruktur und Massenpsychologie, zum Beispiel:
-  - Einstiegszone (nur als Preisbereich, keine Ordertypen)
-  - grobe Stop-Loss-Zone
-  - grobe Take-Profit-Zone
-  - ob die Idee eher konservativ oder aggressiv ist
-- Betone in einem eigenen Satz, dass dies KEINE Anlageberatung ist und nur ein mögliches Szenario.
-"""
+    # User-Prompt: Chart-Kontext + Nutzerfrage
+    user_prompt = (
+        f"Symbol: {symbol}\n"
+        f"Timeframe: {timeframe}\n"
+        f"Aktueller Signalscore: {last_signal}\n\n"
+        f"Technische Daten (kompakt):\n{df_summary}\n\n"
+        f"Benutzerfrage / Aufgabe:\n{question}"
+    )
 
     try:
-        resp = _client.chat.completions.create(
+        response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_completion_tokens=480,  # etwas mehr Raum für die Analyse
+            temperature=0.4,
+            max_tokens=900,  # bewusst begrenzt, damit die Antwort nicht explodiert
         )
-        answer = resp.choices[0].message.content or ""
-        return answer.strip()
+
+        content = response.choices[0].message.content
+        return content.strip()
+
     except Exception as e:
-        return f"❌ KI Fehler (Groq): {e}"
+        # Rohtext der Exception
+        msg = str(e)
+
+        # 1) HTML / Cloudflare 5xx → kurze, saubere Meldung
+        lower_msg = msg.lower()
+        if "<!doctype html" in lower_msg or "<html" in lower_msg:
+            return (
+                "❌ KI Fehler (Groq): Der KI-Server hat eine technische 500-Fehlermeldung zurückgegeben.\n"
+                "Das liegt nicht an deiner Anfrage, sondern an der Gegenstelle (Cloudflare / Groq).\n"
+                "Bitte versuche es später erneut."
+            )
+
+        # 2) Token-/Größenlimit (413 / tokens)
+        if "request too large" in lower_msg or "tokens per minute" in lower_msg or "413" in lower_msg:
+            return (
+                "❌ KI Fehler (Groq): Die Anfrage war zu groß für das aktuelle Modell/Limit.\n"
+                "Versuche es mit einem kürzeren Zeitraum oder einer einfacheren Frage erneut."
+            )
+
+        # 3) Fallback: generische Fehlermeldung ohne HTML-Spam
+        # Falls die Meldung extrem lang ist, abschneiden.
+        if len(msg) > 400:
+            msg = msg[:400] + " …"
+
+        return f"❌ KI Fehler (Groq): {msg}"
