@@ -1,8 +1,1 @@
-"""AI package for crypto dashboard.
-
-Contains:
-- analyzers: regelbasierte Chart-Signale
-- commentary: textuelle Auto-Analyse
-- copilot: KI-CoPilot (Groq)
-- llm: Low-level Groq-Client
-"""
+# Keeps "ai" a proper package. No runtime side effects here.
