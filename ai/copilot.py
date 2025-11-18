@@ -289,7 +289,7 @@ def ask_copilot(
         "- Maximal 1 Satz pro Bullet.\n"
         "- Fokus: Trend, Risiko, Chance im aktuellen Setup.\n\n"
     
-        "### 2. Freie technische Analyse des Charts\n"
+        "### 2. Technische Analyse des Charts\n"
         "- Beschreibe klar den Trend: Lage von EMA20/EMA50 relativ zur MA200, Steigung und Trendstärke.\n"
         "- Bollinger-Bänder (PFLICHT):\n"
         "  * gib die genaue Lage des Kurses an (oberes/mittleres/unteres Band),\n"
@@ -307,7 +307,7 @@ def ask_copilot(
         "- Vergleiche kurz dein Urteil mit dem Signalscore.\n"
         "- Wenn der Kurs unter MA200 liegt oder die MA200 fehlt, ist die Strategie IMMER HOLD.\n\n"
     
-        "### 4. Hypothetische, rein technische Handelsidee (keine Anlageberatung)\n"
+        "### 4. Hypothetische Handelsidee (keine Anlageberatung)\n"
         "- Formuliere eine Einstiegszone (Preisbereich) basierend auf Chart und Indikatoren.\n"
         "- Nenne eine passende Stop-Zone und begründe sie (z.B. Bruch unter Unterstützung oder unteres Band).\n"
         "- Nenne eine Zielzone und begründe sie (z.B. mittleres/oberes Band, MA200, markanter Widerstand).\n"
