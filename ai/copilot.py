@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import os
+import re
 from typing import Optional
 
 import pandas as pd
@@ -59,6 +60,34 @@ def _looks_like_html_error(text: str) -> bool:
         or "cf-error" in t
         or "</html>" in t
     )
+
+
+def _strip_html_tags(text: str) -> str:
+    """
+    Entfernt normale HTML-Tags aus einer Antwort und konvertiert
+    einfache Strukturen in Text/Markdown-ähnliche Form.
+    Das ist ein Fallback, falls das Modell trotz Prompt doch HTML schickt.
+    """
+    if not text:
+        return ""
+
+    # Zeilenumbrüche für typische Tags
+    text = text.replace("<br>", "\n").replace("<br/>", "\n").replace("<br />", "\n")
+    text = text.replace("</p>", "\n")
+
+    # Listen in Markdown-artige Bullets umwandeln
+    text = re.sub(r"<li[^>]*>", "- ", text)
+    text = re.sub(r"</li>", "\n", text)
+    text = re.sub(r"<(ul|ol)[^>]*>", "", text)
+    text = re.sub(r"</(ul|ol)>", "", text)
+
+    # Restliche Tags entfernen
+    text = re.sub(r"<[^>]+>", "", text)
+
+    # Mehrfache Leerzeilen reduzieren
+    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+
+    return text.strip()
 
 
 def _compress_df_for_llm(
@@ -281,7 +310,6 @@ def ask_copilot(
         "- Antworte nur in Text oder Markdown, ohne HTML-Tags.\n"
     )
 
-
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -290,7 +318,7 @@ def ask_copilot(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_completion_tokens=1200,  # genug Platz, aber nicht übertrieben
+            max_completion_tokens=1200,
         )
 
         content = response.choices[0].message.content or ""
@@ -305,27 +333,26 @@ def ask_copilot(
                 "Bitte später erneut versuchen."
             )
 
+        # Falls die Antwort trotzdem HTML/Tags enthält → in Text umwandeln
+        if "<" in stripped and ">" in stripped:
+            cleaned = _strip_html_tags(stripped)
+            if cleaned:
+                return cleaned
+
         return stripped
 
     except Exception as e:
         msg = str(e).strip()
         lower_msg = msg.lower()
 
-        # Wenn der Fehlertext selbst nach HTML aussieht → generische, kurze Meldung
-        if _looks_like_html_error(msg):
+        # 🔴 Hier: HTML-Fehlerseiten von Groq/Cloudflare sicher abfangen
+        if "<!doctype html" in lower_msg or "<html" in lower_msg or "cloudflare" in lower_msg:
             return (
-                "❌ KI Fehler (Groq): Der KI-Server hat intern eine HTML-Fehlerseite "
-                "(z.B. 500 / Cloudflare) geliefert.\n"
-                "Du kannst daran nichts ändern – der Dienst war vermutlich kurzzeitig "
-                "nicht erreichbar. Bitte später erneut versuchen."
+                "❌ KI Fehler (Groq): Der Server von Groq hat eine interne HTML-Fehlerseite "
+                "(Error 5xx, z.B. 500 / Cloudflare) zurückgegeben.\n"
+                "Du kannst daran nichts ändern – der Dienst war vermutlich kurzzeitig nicht erreichbar.\n"
+                "Bitte versuche es später erneut."
             )
-
-        # Falls die Exception z.B. sowas enthält wie
-        # "... 500 Internal Server Error ... <!DOCTYPE html> ...",
-        # schneiden wir ab dem HTML-Teil weg:
-        if "<!doctype html" in lower_msg:
-            msg = msg.split("<!doctype html", 1)[0].strip()
-            lower_msg = msg.lower()
 
         # Token-/Größenlimit / Rate-Limit
         if (
