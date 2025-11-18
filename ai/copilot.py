@@ -17,14 +17,14 @@ def get_groq_client() -> Optional[Groq]:
     """
     Erzeugt einmalig einen Groq-Client und cached ihn für die Session.
     Sucht den API-Key zuerst in Streamlit-Secrets, dann in Umgebungsvariablen.
+    Erwartete Secrets-Struktur:
+    [groq]
+    api_key = "gsk_..."
     """
     api_key = None
 
     # 1) Streamlit Secrets bevorzugen
     try:
-        # erwartet in .streamlit/secrets.toml:
-        # [groq]
-        # api_key = "gsk_..."
         api_key = st.secrets["groq"]["api_key"]
     except Exception:
         api_key = None
@@ -46,6 +46,7 @@ def _compress_df_for_llm(df: pd.DataFrame, max_rows: int = 200) -> str:
     """
     Reduziert den Chart auf ein kompaktes Text-Preview,
     damit der Prompt klein bleibt und keine 413-Fehler kommen.
+    Nutzt nur die letzten max_rows Kerzen.
     """
     if df is None or df.empty:
         return "Keine Kursdaten verfügbar."
@@ -61,7 +62,8 @@ def _compress_df_for_llm(df: pd.DataFrame, max_rows: int = 200) -> str:
     rsi = float(last.get("rsi14", float("nan")))
     ema20 = float(last.get("ema20", float("nan")))
     ema50 = float(last.get("ema50", float("nan")))
-    ma200 = float(last.get("ma200", float("nan")))
+    ma200 = float(last.get("ma200", float("nan")))  # WICHTIG: MA200 hier!
+
     bb_mid = float(last.get("bb_mid", float("nan")))
     bb_up = float(last.get("bb_up", float("nan")))
     bb_lo = float(last.get("bb_lo", float("nan")))
@@ -136,14 +138,16 @@ def _looks_like_html_error(text: str) -> bool:
 # ---------------------------------------------------------
 def ask_copilot(
     question: str,
+    df: pd.DataFrame,
     symbol: str,
     timeframe: str,
-    df: pd.DataFrame,
-    last_signal: str,
+    last_signal: Optional[str] = None,
 ) -> str:
     """
-    Ruft Groq als CoPilot auf. Bei Fehlern wird eine kurze,
-    saubere Fehlermeldung zurückgegeben (ohne HTML-Müll).
+    Ruft Groq als CoPilot auf.
+    - Nutzt kompakten Chart-Kontext
+    - Liefert Text/Markdown (ohne HTML)
+    - Erkennung von Groq/Cloudflare-HTML-Fehlerseiten
     """
     if not question or not str(question).strip():
         return "Bitte zuerst eine sinnvolle Frage an den CoPilot eingeben."
@@ -157,31 +161,53 @@ def ask_copilot(
             "oder die Umgebungsvariable `GROQ_API_KEY` setzen."
         )
 
-    # Kompakte Beschreibung der Marktdaten für den Prompt
+    if last_signal is None:
+        last_signal = "NO DATA"
+
     df_summary = _compress_df_for_llm(df)
 
-    # Systemprompt: Rolle des CoPiloten
+    # SYSTEM PROMPT — MIT MA200
     system_prompt = (
-        "Du bist ein nüchterner technischer Marktanalyst für Kryptowährungen. "
-        "Du nutzt ausschließlich technische Analyse (RSI, EMAs, MA200, Bollinger-Bänder, "
-        "Candlesticks, Volumen) und machst KEINE Finanz- oder Anlageberatung. "
-        "Formuliere klar, strukturiert und eher kurz, ohne unnötige Wiederholungen. "
-        "Wenn du eine 'Handelsidee' beschreibst, mache deutlich, dass es nur ein "
-        "hypothetisches, technisches Beispiel ist. "
-        "WICHTIG: Antworte ausschließlich in Text bzw. Markdown – KEINE HTML-Tags verwenden."
+        "Du bist ein nüchterner, technischer Analyst für Kryptowährungen.\n"
+        "Du nutzt ausschließlich die folgenden Indikatoren:\n"
+        "- RSI(14)\n"
+        "- EMA20\n"
+        "- EMA50\n"
+        "- MA200\n"
+        "- Bollinger-Bänder (20)\n"
+        "- Candlestick-Struktur\n"
+        "- Volumen\n\n"
+        "Du interpretierst Trend, Momentum, Volatilität, Unterstützungen/Widerstände "
+        "und mögliche psychologische Muster.\n\n"
+        "Du gibst KEINE Finanz- oder Anlageberatung. Jede Handelsidee ist rein hypothetisch.\n\n"
+        "WICHTIG:\n"
+        "- Antworte nur in Text oder Markdown.\n"
+        "- Verwende KEINE HTML-Tags wie <p>, <ul>, <li>, <div>, <span>, <br>."
     )
 
-    # User-Prompt: Chart-Kontext + Nutzerfrage
+    # USER PROMPT — MIT MA200
     user_prompt = (
         f"Symbol: {symbol}\n"
         f"Timeframe: {timeframe}\n"
         f"Aktueller Signalscore: {last_signal}\n\n"
         f"Technische Daten (kompakt):\n{df_summary}\n\n"
-        f"Benutzerfrage / Aufgabe:\n{question}\n\n"
-        "Antwortformat:\n"
-        "- Antworte in normalem Text oder Markdown.\n"
-        "- Verwende KEINE HTML-Tags wie <p>, <br>, <ul>, <li>, <div>, <span> usw.\n"
-        "- Nutze bei Bedarf Aufzählungen mit Markdown (-, *, 1.) statt HTML.\n"
+        f"Benutzerfrage:\n{question}\n\n"
+        "Bitte:\n"
+        "1. Beschreibe kurz das aktuelle Setup.\n"
+        "2. Gehe ein auf:\n"
+        "   - Trend (EMA20/EMA50/MA200)\n"
+        "   - Momentum (RSI)\n"
+        "   - Volatilität / Bollinger-Bänder\n"
+        "   - Candlesticks (Druck, Stärke/Schwäche, Umkehr)\n"
+        "   - Unterstützungen und Widerstände\n"
+        "3. Gib ein bullisches und ein bärisches Szenario.\n"
+        "4. Formuliere eine rein technische, hypothetische Handelsidee:\n"
+        "   - mögliche Einstiegszone\n"
+        "   - mögliche Stop-Zone\n"
+        "   - mögliche Zielzone\n"
+        "   - konservativ oder aggressiv\n"
+        "5. Betone, dass es keine Anlageberatung ist.\n"
+        "6. KEINE HTML-Tags verwenden — nur Markdown/Text.\n"
     )
 
     try:
@@ -192,55 +218,41 @@ def ask_copilot(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_tokens=900,  # begrenzt halten
+            max_completion_tokens=900,
         )
 
         content = response.choices[0].message.content or ""
         stripped = content.strip()
 
-        # Falls Groq/Cloudflare uns eine HTML-Seite als "Antwort" schickt:
+        # HTML-Error-Erkennung
         if _looks_like_html_error(stripped):
             return (
                 "❌ KI Fehler (Groq): Der KI-Dienst hat eine HTML-Fehlerseite "
                 "(z.B. 500 / Cloudflare) zurückgegeben.\n"
-                "Das liegt an der Gegenstelle, nicht an deiner Anfrage. "
                 "Bitte später erneut versuchen."
             )
 
         return stripped
 
     except Exception as e:
-        msg = str(e)
+        msg = str(e).strip()
         lower_msg = msg.lower()
 
-        # Wenn der Fehlertext selbst nach HTML aussieht → generische, kurze Meldung
         if _looks_like_html_error(msg):
             return (
-                "❌ KI Fehler (Groq): Der KI-Server hat intern eine HTML-Fehlerseite "
-                "(z.B. 500 / Cloudflare) geliefert.\n"
-                "Du kannst daran nichts ändern – der Dienst war vermutlich kurzzeitig "
-                "nicht erreichbar. Bitte später erneut versuchen."
+                "❌ KI Fehler (Groq): Eine HTML-Fehlerseite wurde zurückgegeben.\n"
+                "Bitte später erneut versuchen."
             )
 
-        # Falls die Exception z.B. sowas enthält wie
-        # "... 500 Internal Server Error ... <!DOCTYPE html> ...",
-        # schneiden wir ab dem HTML-Teil weg:
         if "<!doctype html" in lower_msg:
-            msg = msg.split("<!DOCTYPE html", 1)[0].strip()
-            lower_msg = msg.lower()
+            msg = msg.split("<!doctype html")[0].strip()
 
-        # Token-/Größenlimit / Rate-Limit
-        if (
-            "request too large" in lower_msg
-            or "tokens per minute" in lower_msg
-            or "413" in lower_msg
-        ):
+        if any(x in lower_msg for x in ["request too large", "413", "tokens per minute"]):
             return (
-                "❌ KI Fehler (Groq): Die Anfrage war zu groß oder hat ein Token-/Rate-Limit überschritten.\n"
-                "Wähle einen kürzeren Zeitraum oder stelle eine einfachere Frage."
+                "❌ KI Fehler (Groq): Die Anfrage war zu groß oder überschreitet das Token-/Rate-Limit.\n"
+                "Bitte Zeitraum verkleinern oder Frage vereinfachen."
             )
 
-        # Generischer, gekürzter Fehler
         if len(msg) > 400:
             msg = msg[:400] + " …"
 
