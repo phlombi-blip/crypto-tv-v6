@@ -61,9 +61,6 @@ def _looks_like_html_error(text: str) -> bool:
     )
 
 
-# ---------------------------------------------------------
-# Daten kompakt für LLM zusammenfassen (mit dynamischem Lookback & Längenlimit)
-# ---------------------------------------------------------
 def _compress_df_for_llm(
     df: pd.DataFrame,
     timeframe: str,
@@ -105,7 +102,7 @@ def _compress_df_for_llm(
     rsi = float(last.get("rsi14", float("nan")))
     ema20 = float(last.get("ema20", float("nan")))
     ema50 = float(last.get("ema50", float("nan")))
-    ma200 = float(last.get("ma200", float("nan")))  # WICHTIG: MA200, kein EMA200
+    ma200 = float(last.get("ma200", float("nan")))  # MA200 (nicht EMA200)
 
     bb_mid = float(last.get("bb_mid", float("nan")))
     bb_up = float(last.get("bb_up", float("nan")))
@@ -221,15 +218,15 @@ def ask_copilot(
         "- Volumen\n\n"
         "Du kennst außerdem folgende Long-only-Strategie-Logik:\n"
         "- Es wird nur in Long-Richtung gehandelt, wenn der Kurs ÜBER der MA200 liegt.\n"
-        "- Ist MA200 nicht verfügbar oder der Kurs darunter, ist das Ergebnis immer HOLD.\n"
+        "- Ist die MA200 nicht verfügbar oder der Kurs darunter, ist das Ergebnis immer HOLD.\n"
         "- STRONG BUY: starker Dip am unteren Bollinger-Band (Kurs am/unter bb_lo) mit RSI < 35.\n"
         "- BUY: gesunder Pullback, wenn der Kurs nahe/unter dem unteren Band (<= bb_lo * 1.01) "
         "und der RSI zwischen 30 und 48 liegt.\n"
-        "- STRONG SELL: Blow-Off-Top, wenn der Kurs über dem oberen Band liegt, RSI > 73 ist "
+        "- STRONG SELL: Blow-Off-Top, wenn der Kurs über dem oberen Band liegt, der RSI > 73 ist "
         "und der Schlusskurs schwächer ist als die vorherige Kerze.\n"
-        "- SELL: normale Übertreibung, wenn der Kurs über dem oberen Band liegt, RSI > 72 ist "
+        "- SELL: normale Übertreibung, wenn der Kurs über dem oberen Band liegt, der RSI > 72 ist "
         "und der RSI gegenüber der vorherigen Kerze fällt.\n"
-        "- In allen anderen Fällen: HOLD (kein klares Setup).\n\n"
+        "- In allen anderen Fällen: HOLD (kein eindeutiges Signal).\n\n"
         "Deine Aufgabe ist es, den gelieferten Chart kompakt, klar und technisch zu analysieren und "
         "die aktuelle Situation sowohl allgemein-technisch als auch im Kontext dieser Strategie zu bewerten.\n"
         "Du schreibst prägnant, analytisch und strukturiert und vermeidest Wiederholungen.\n"
@@ -240,8 +237,6 @@ def ask_copilot(
         "- Antworte nur in normalem Text oder Markdown.\n"
         "- Verwende KEINE HTML-Tags wie <p>, <ul>, <li>, <div>, <span>, <br>.\n"
     )
-
-
 
     # USER PROMPT — Chartkontext & Strategie-Einordnung
     user_prompt = (
@@ -256,23 +251,24 @@ def ask_copilot(
         "- Fokus: Trend, Risiko, Chance im aktuellen Setup.\n\n"
         "2) Technische Analyse des Charts\n"
         "- Trend & Kreuzungen: Lage von EMA20/EMA50 relativ zur MA200, "
-        "Kurs über/unter den Linien, Pullbacks zur EMA20/EMA50.\n"
-        "- RSI(14): überkauft/überverkauft, Divergenzen, ob der RSI steigt oder fällt.\n"
+        "Kurs über/unter diesen Linien, Pullbacks zur EMA20/EMA50.\n"
+        "- RSI(14): ob der Markt eher überkauft oder überverkauft ist, ob der RSI steigt oder fällt, "
+        "und ob Divergenzen sichtbar sein könnten.\n"
         "- Bollinger-Bänder: Position des Kurses (oberes/mittleres/unteres Band), "
-        "Bandbreite (enge Range vs. Expansion), Hinweise auf Ausbruch oder Mean-Reversion.\n"
-        "- Candlesticks: auffällige Kerzen (lange Dochte, Engulfing, Hammer/Shooting Star), "
-        "ob sie Stärke oder Schwäche zeigen.\n"
+        "Bandbreite (enge Range vs. Expansion), mögliche Hinweise auf Ausbruch oder Mean-Reversion.\n"
+        "- Candlesticks: auffällige Kerzen (Dochte, Engulfing, Hammer/Shooting Star), "
+        "und was sie über Stärke oder Schwäche aussagen.\n"
         "- Unterstützungen/Widerstände: wichtige Preiszonen, die aus Verlauf und Indikatoren ableitbar sind.\n\n"
         "3) Einordnung im Kontext der Strategie\n"
         "- Erkläre, ob die aktuelle Situation eher zu STRONG BUY, BUY, SELL, STRONG SELL oder HOLD passt "
-        "gemäß der beschriebenen Regeln (MA200, Bollinger-Bänder, RSI, Blow-Off-Top, Dip).\n"
+        "gemäß der beschriebenen Regeln (MA200 als Filter, Bollinger-Bänder, RSI-Schwellen, Blow-Off-Top, Dip).\n"
         "- Vergleiche deine Einschätzung kurz mit dem angegebenen Signalscore.\n"
         "- Wenn der Kurs unter MA200 liegt oder MA200 fehlt, betone, dass die Strategie nur HOLD vorsieht.\n\n"
         "4) Hypothetische, rein technische Handelsidee (keine Anlageberatung)\n"
         "- Nenne eine mögliche Einstiegszone (Preisbereich) mit Bezug auf die Strategie "
         "(z.B. Rebound am unteren Band, Pullback an EMA50, Rücklauf zur MA200).\n"
         "- Nenne eine grobe Stop-Zone (Preisbereich) mit Begründung "
-        "(z.B. Bruch unter eine Unterstützung, unteres Band, unter MA200).\n"
+        "(z.B. Bruch unter wichtige Unterstützung, unteres Band oder unter MA200).\n"
         "- Nenne eine grobe Zielzone (Preisbereich) mit Begründung "
         "(z.B. Rücklauf zur MA200, Retest eines markanten Widerstands, mittleres/oberes Bollinger-Band).\n"
         "- Ordne die Idee als eher konservativ oder aggressiv ein und erkläre kurz warum.\n"
@@ -283,8 +279,6 @@ def ask_copilot(
         "- Antworte nur in Text oder Markdown, ohne HTML-Tags.\n"
     )
 
-
-
     try:
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -293,7 +287,7 @@ def ask_copilot(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_completion_tokens=1800,  # Output begrenzen
+            max_completion_tokens=1200,  # genug Platz, aber nicht übertrieben
         )
 
         content = response.choices[0].message.content or ""
@@ -302,7 +296,7 @@ def ask_copilot(
         # Falls Groq/Cloudflare uns eine HTML-Seite als "Antwort" schickt:
         if _looks_like_html_error(stripped):
             return (
-                "❌ KI Fehler (Groq): Der KI-Dienst hat eine HTML-Fehlerseite "
+                "❌ KI Fehler (Groq): Der KI-Dienst hat offenbar eine HTML-Fehlerseite "
                 "(z.B. 500 / Cloudflare) zurückgegeben.\n"
                 "Das liegt an der Gegenstelle, nicht an deiner Anfrage. "
                 "Bitte später erneut versuchen."
