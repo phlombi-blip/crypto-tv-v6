@@ -4,22 +4,24 @@
 import os
 from typing import Optional
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 from groq import Groq
 
 
+# ------------------------------------------------------------------
+# API-Client
+# ------------------------------------------------------------------
 def _get_api_key() -> Optional[str]:
     """Liest den Groq API-Key aus Streamlit-Secrets oder Umgebungsvariablen."""
     key = None
 
-    # 1) Streamlit Secrets
     try:
         key = st.secrets.get("GROQ_API_KEY", None)
     except Exception:
         key = None
 
-    # 2) Fallback: Umgebungsvariable
     if not key:
         key = os.getenv("GROQ_API_KEY")
 
@@ -30,7 +32,6 @@ _api_key = _get_api_key()
 _client: Optional[Groq]
 
 if not _api_key:
-    # Kein harter Fehler – App läuft weiter, KI ist nur deaktiviert
     st.warning(
         "⚠️ Kein Groq API-Key gefunden. "
         "Bitte in Streamlit unter 'Secrets' einen Eintrag "
@@ -42,48 +43,87 @@ else:
     _client = Groq(api_key=_api_key)
 
 
-def _build_chart_summary(df: pd.DataFrame, max_rows: int = 60) -> str:
+# ------------------------------------------------------------------
+# Kompakte Chart-Zusammenfassung – OHNE riesige Tabellen
+# ------------------------------------------------------------------
+def _build_chart_summary(df: pd.DataFrame, lookback: int = 150) -> str:
     """
-    Kompakte Zusammenfassung der letzten Candles.
-    - Nur wenige Spalten
-    - Wenige Zeilen
-    → Deutlich weniger Tokens für Groq.
+    Erzeugt eine extrem kompakte, numerische Zusammenfassung des Charts,
+    damit die Groq-Requests garantiert klein bleiben.
+    Keine Tabellen, keine Zeilenlisten – nur Aggregate.
     """
     if df is None or df.empty:
-        return "Keine Candles vorhanden."
+        return "Keine Marktdaten vorhanden."
 
-    # Nur die letzten max_rows Zeilen
-    df_tail = df.tail(max_rows).copy()
+    # Nur die letzten N Kerzen für die Statistik
+    df_tail = df.tail(lookback).copy()
 
-    # Nur die wichtigsten Spalten für eine KI-Einschätzung
-    cols = [
-        "open",
-        "high",
-        "low",
-        "close",
-        "volume",
-        "rsi14",
-        "signal",
+    close = df_tail["close"]
+    rsi = df_tail["rsi14"] if "rsi14" in df_tail.columns else None
+    vol = df_tail["volume"] if "volume" in df_tail.columns else None
+    sig = df_tail["signal"] if "signal" in df_tail.columns else None
+
+    last_close = float(close.iloc[-1])
+    first_close = float(close.iloc[0])
+    change_pct = (last_close - first_close) / first_close * 100 if first_close != 0 else 0.0
+
+    if rsi is not None and not rsi.isna().all():
+        rsi_now = float(rsi.iloc[-1])
+        rsi_min = float(rsi.min())
+        rsi_max = float(rsi.max())
+        rsi_avg = float(rsi.mean())
+    else:
+        rsi_now = rsi_min = rsi_max = rsi_avg = None
+
+    if vol is not None and not vol.isna().all():
+        vol_avg = float(vol.mean())
+        vol_max = float(vol.max())
+    else:
+        vol_avg = vol_max = None
+
+    sig_counts = {}
+    if sig is not None:
+        sig_counts = sig.value_counts().to_dict()
+
+    # grob: Trendbeschreibung
+    if change_pct > 5:
+        trend = "klar aufwärts (Bullentrend)"
+    elif change_pct < -5:
+        trend = "klar abwärts (Bärentrend)"
+    elif abs(change_pct) <= 1:
+        trend = "seitwärts / Range"
+    else:
+        trend = "leichter Trend, aber nicht extrem"
+
+    lines = [
+        f"Betrachteter Zeitraum: letzte {len(df_tail)} Kerzen.",
+        f"Aktueller Schlusskurs: {last_close:.2f} USD.",
+        f"Veränderung über diesen Zeitraum: {change_pct:.2f} % → {trend}",
     ]
-    use_cols = [c for c in cols if c in df_tail.columns]
-    if not use_cols:
-        return "Candles ohne relevante Indikatoren – nur Preise verfügbar."
 
-    df_tail = df_tail[use_cols]
+    if rsi_now is not None:
+        lines.append(
+            f"RSI(14): aktuell {rsi_now:.1f}, Minimum {rsi_min:.1f}, Maximum {rsi_max:.1f}, "
+            f"Durchschnitt {rsi_avg:.1f}."
+        )
+    else:
+        lines.append("RSI(14) ist nicht verfügbar.")
 
-    # Zahlen etwas runden, damit der Text kürzer wird
-    num_cols = df_tail.select_dtypes(include=["float", "int"]).columns
-    df_tail[num_cols] = df_tail[num_cols].round(3)
+    if vol_avg is not None:
+        lines.append(
+            f"Volumen: Durchschnitt {vol_avg:.2f}, Spitze (max) {vol_max:.2f}."
+        )
 
-    # Index in eine Spalte verschieben, damit Zeitstempel enthalten sind, aber schlank
-    df_tail = df_tail.reset_index()
-    if "open_time" in df_tail.columns:
-        df_tail["open_time"] = df_tail["open_time"].astype(str)
+    if sig_counts:
+        parts = [f"{k}: {v}" for k, v in sig_counts.items()]
+        lines.append("Verteilung der Handelssignale im Zeitraum: " + ", ".join(parts))
 
-    # Als kompakte Texttabelle zurückgeben
-    return df_tail.to_string(index=False, max_rows=max_rows)
+    return "\n".join(lines)
 
 
+# ------------------------------------------------------------------
+# Hauptfunktion für ui.py
+# ------------------------------------------------------------------
 def ask_copilot(
     question: str,
     df: pd.DataFrame,
@@ -92,8 +132,7 @@ def ask_copilot(
     last_signal: Optional[str] = None,
 ) -> str:
     """
-    Fragt den KI-CoPilot (Groq / Llama 3) mit Chart-Kontext.
-    Wird von ui.py aufgerufen.
+    Fragt den KI-CoPilot (Groq / Llama 3) mit sehr kleinem Chart-Kontext.
     """
     if not question or not str(question).strip():
         return "Bitte zuerst eine Frage eingeben."
@@ -105,7 +144,7 @@ def ask_copilot(
             "Umgebungsvariable setzen."
         )
 
-    chart_summary = _build_chart_summary(df)
+    chart_summary = _build_chart_summary(df, lookback=150)
     last_signal_txt = (
         f"Letztes Handelssignal laut System: {last_signal}"
         if last_signal
@@ -113,11 +152,10 @@ def ask_copilot(
     )
 
     system_prompt = (
-        "Du bist ein erfahrener TradingView-Chart-Analyst für Kryptowährungen. "
-        "Du arbeitest mit Candlesticks, Volumen, RSI, EMA20/EMA50, MA200 "
-        "und Bollinger-Bändern. "
-        "Du gibst KEINE Anlageberatung, sondern erklärst Setups, Risiken und "
-        "mögliche Szenarien verständlich."
+        "Du bist ein erfahrener technischer Analyst für Kryptowährungen. "
+        "Du interpretierst Candlestick-Charts mit RSI, Volumen und Handelssignalen. "
+        "Du gibst KEINE Anlageberatung und triffst keine konkreten Trading-Entscheidungen, "
+        "sondern erklärst Setups, mögliche Szenarien und Risiken."
     )
 
     user_prompt = f"""
@@ -126,17 +164,17 @@ Timeframe: {timeframe}
 
 {last_signal_txt}
 
-Chartdaten (letzte Candles + Indikatoren):
+Kompakte Marktzusammenfassung:
 {chart_summary}
 
-User-Frage:
+Frage des Nutzers:
 {question}
 
 Bitte:
-- Beschreibe das aktuelle Setup kurz aber präzise.
-- Gehe auf Trend, Momentum, Volumen und wichtige Zonen/Levels ein.
-- Nenne mögliche bullische UND bärische Szenarien.
-- Erwähne immer, dass es keine Finanzberatung ist.
+- Beschreibe das aktuelle Setup kurz und verständlich.
+- Gehe auf Trend, Momentum, Volumen und grobe Risiko-Szenarien ein.
+- Nenne sowohl mögliche bullische als auch bärische Varianten.
+- Weise explizit darauf hin, dass es keine Finanzberatung ist.
 """
 
     try:
@@ -146,7 +184,7 @@ Bitte:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            max_completion_tokens=400,
+            max_completion_tokens=320,   # auch hier klein halten
         )
         answer = resp.choices[0].message.content or ""
         return answer.strip()
