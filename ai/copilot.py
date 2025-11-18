@@ -17,9 +17,11 @@ from groq import Groq
 def get_groq_client() -> Optional[Groq]:
     """
     Erzeugt einmalig einen Groq-Client und cached ihn für die Session.
+
     Sucht den API-Key zuerst in Streamlit-Secrets, dann in Umgebungsvariablen.
 
     Erwartete Secrets-Struktur in .streamlit/secrets.toml:
+
     [groq]
     api_key = "gsk_..."
     """
@@ -53,11 +55,14 @@ def _looks_like_html_error(text: str) -> bool:
         return False
 
     t = text.strip().lower()
+
+    # Etwas großzügiger prüfen
     return (
-        t.startswith("<!doctype html")
-        or t.startswith("<html")
+        "<!doctype html" in t
+        or "<html" in t
         or "cloudflare" in t
         or "cf-error" in t
+        or "error code 500" in t
         or "</html>" in t
     )
 
@@ -66,6 +71,7 @@ def _strip_html_tags(text: str) -> str:
     """
     Entfernt normale HTML-Tags aus einer Antwort und konvertiert
     einfache Strukturen in Text/Markdown-ähnliche Form.
+
     Das ist ein Fallback, falls das Modell trotz Prompt doch HTML schickt.
     """
     if not text:
@@ -104,7 +110,6 @@ def _compress_df_for_llm(
     - Optional kann max_override gesetzt werden, um den Lookback hart zu überschreiben.
     - Zusätzlich wird der erzeugte Text auf max_chars Zeichen begrenzt.
     """
-
     if df is None or df.empty:
         return "Keine Kursdaten verfügbar."
 
@@ -136,6 +141,7 @@ def _compress_df_for_llm(
     bb_mid = float(last.get("bb_mid", float("nan")))
     bb_up = float(last.get("bb_up", float("nan")))
     bb_lo = float(last.get("bb_lo", float("nan")))
+
     last_signal = str(last.get("signal", "NO DATA"))
 
     # Grobe Statistik über den betrachteten Zeitraum
@@ -207,7 +213,8 @@ def ask_copilot(
     - Frage wird auf eine maximale Länge begrenzt.
     - DF-Zusammenfassung ist in Kerzen und Zeichen limitiert.
     - Antwort ist immer Text/Markdown, ohne HTML.
-    - HTML-Fehlerseiten von Groq/Cloudflare werden erkannt und in saubere Meldungen übersetzt.
+    - HTML-Fehlerseiten von Groq/Cloudflare werden erkannt
+      und in saubere Meldungen übersetzt.
     """
     if not question or not str(question).strip():
         return "Bitte zuerst eine sinnvolle Frage an den CoPilot eingeben."
@@ -216,16 +223,15 @@ def ask_copilot(
     if client is None:
         return (
             "❌ KI nicht verfügbar: Kein Groq API-Key gefunden.\n\n"
-            "Bitte in Streamlit unter `secrets.toml` eintragen:\n"
+            "Bitte in Streamlit unter secrets.toml eintragen:\n"
             "[groq]\napi_key = \"DEIN_GROQ_KEY_HIER\"\n"
-            "oder die Umgebungsvariable `GROQ_API_KEY` setzen."
+            "oder die Umgebungsvariable GROQ_API_KEY setzen."
         )
 
     if last_signal is None:
         last_signal = "NO DATA"
 
-    # Benutzerfrage hart begrenzen (z.B. 1200 Zeichen),
-    # um grobe Prompt-Explosionen zu vermeiden.
+    # Benutzerfrage hart begrenzen
     raw_question = str(question).strip()
     max_question_chars = 1200
     if len(raw_question) > max_question_chars:
@@ -328,9 +334,8 @@ def ask_copilot(
         if _looks_like_html_error(stripped):
             return (
                 "❌ KI Fehler (Groq): Der KI-Dienst hat offenbar eine HTML-Fehlerseite "
-                "(z.B. 500 / Cloudflare) zurückgegeben.\n"
-                "Das liegt an der Gegenstelle, nicht an deiner Anfrage. "
-                "Bitte später erneut versuchen."
+                "(Error 5xx, z.B. 500 / Cloudflare) zurückgegeben.\n"
+                "Das liegt an der Gegenstelle, nicht an deiner Anfrage. Bitte später erneut versuchen."
             )
 
         # Falls die Antwort trotzdem HTML/Tags enthält → in Text umwandeln
@@ -345,8 +350,8 @@ def ask_copilot(
         msg = str(e).strip()
         lower_msg = msg.lower()
 
-        # 🔴 Hier: HTML-Fehlerseiten von Groq/Cloudflare sicher abfangen
-        if "<!doctype html" in lower_msg or "<html" in lower_msg or "cloudflare" in lower_msg:
+        # 🔴 HTML-Fehlerseiten von Groq/Cloudflare sicher abfangen
+        if _looks_like_html_error(lower_msg):
             return (
                 "❌ KI Fehler (Groq): Der Server von Groq hat eine interne HTML-Fehlerseite "
                 "(Error 5xx, z.B. 500 / Cloudflare) zurückgegeben.\n"
@@ -365,8 +370,13 @@ def ask_copilot(
                 "Wähle einen kürzeren Zeitraum oder stelle eine einfachere Frage."
             )
 
-        # Generischer, gekürzter Fehler
-        if len(msg) > 400:
-            msg = msg[:400] + " …"
+        # Wenn sonst HTML drin steckt, strippen wir es und zeigen nur einen gekürzten Text
+        if "<" in lower_msg and ">" in lower_msg:
+            msg_clean = _strip_html_tags(msg)
+        else:
+            msg_clean = msg
 
-        return f"❌ KI Fehler (Groq): {msg}"
+        if len(msg_clean) > 400:
+            msg_clean = msg_clean[:400] + " …"
+
+        return f"❌ KI Fehler (Groq): {msg_clean}"
