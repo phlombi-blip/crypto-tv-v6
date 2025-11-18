@@ -243,7 +243,7 @@ def ask_copilot(
 
 
 
-        # USER PROMPT — Chartkontext & Strategie-Einordnung
+    # USER PROMPT — Chartkontext & Strategie-Einordnung
     user_prompt = (
         f"Symbol: {symbol}\n"
         f"Timeframe: {timeframe}\n"
