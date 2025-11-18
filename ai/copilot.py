@@ -42,36 +42,46 @@ else:
     _client = Groq(api_key=_api_key)
 
 
-def _build_chart_summary(df: pd.DataFrame, max_rows: int = 300) -> str:
+def _build_chart_summary(df: pd.DataFrame, max_rows: int = 60) -> str:
     """
-    Kompakte textuelle Zusammenfassung der letzten Candles für den KI-Context.
+    Kompakte Zusammenfassung der letzten Candles.
+    - Nur wenige Spalten
+    - Wenige Zeilen
+    → Deutlich weniger Tokens für Groq.
     """
     if df is None or df.empty:
         return "Keine Candles vorhanden."
 
+    # Nur die letzten max_rows Zeilen
     df_tail = df.tail(max_rows).copy()
 
+    # Nur die wichtigsten Spalten für eine KI-Einschätzung
     cols = [
         "open",
         "high",
         "low",
         "close",
         "volume",
-        "ema20",
-        "ema50",
-        "ma200",
-        "bb_mid",
-        "bb_up",
-        "bb_lo",
         "rsi14",
         "signal",
     ]
     use_cols = [c for c in cols if c in df_tail.columns]
     if not use_cols:
-        return "Candles ohne Indikatoren – nur Preise verfügbar."
+        return "Candles ohne relevante Indikatoren – nur Preise verfügbar."
 
     df_tail = df_tail[use_cols]
-    return df_tail.to_string(max_rows=max_rows)
+
+    # Zahlen etwas runden, damit der Text kürzer wird
+    num_cols = df_tail.select_dtypes(include=["float", "int"]).columns
+    df_tail[num_cols] = df_tail[num_cols].round(3)
+
+    # Index in eine Spalte verschieben, damit Zeitstempel enthalten sind, aber schlank
+    df_tail = df_tail.reset_index()
+    if "open_time" in df_tail.columns:
+        df_tail["open_time"] = df_tail["open_time"].astype(str)
+
+    # Als kompakte Texttabelle zurückgeben
+    return df_tail.to_string(index=False, max_rows=max_rows)
 
 
 def ask_copilot(
