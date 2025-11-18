@@ -1,1 +1,8 @@
-from .llm import groq_chat, groq_market_analysis
+"""AI package for crypto dashboard.
+
+Contains:
+- analyzers: regelbasierte Chart-Signale
+- commentary: textuelle Auto-Analyse
+- copilot: KI-CoPilot (Groq)
+- llm: Low-level Groq-Client
+"""
