@@ -41,25 +41,48 @@ def get_groq_client() -> Optional[Groq]:
 
 
 # ---------------------------------------------------------
-# Daten kompakt für LLM zusammenfassen (mit dynamischem Lookback)
+# Hilfsfunktionen
+# ---------------------------------------------------------
+def _looks_like_html_error(text: str) -> bool:
+    """
+    Erkenne typische HTML-Fehlerseiten (Cloudflare, 500er, etc.),
+    damit wir sie nicht roh im UI anzeigen.
+    """
+    if not text:
+        return False
+
+    t = text.strip().lower()
+    return (
+        t.startswith("<!doctype html")
+        or t.startswith("<html")
+        or "cloudflare" in t
+        or "cf-error" in t
+        or "</html>" in t
+    )
+
+
+# ---------------------------------------------------------
+# Daten kompakt für LLM zusammenfassen (mit dynamischem Lookback & Längenlimit)
 # ---------------------------------------------------------
 def _compress_df_for_llm(
     df: pd.DataFrame,
     timeframe: str,
     max_override: Optional[int] = None,
+    max_chars: int = 2000,
 ) -> str:
     """
     Reduziert den Chart auf ein kompaktes Text-Preview für den Prompt.
 
+    Schutz vor zu großem Input:
     - Verwendet je nach Timeframe unterschiedlich viele Kerzen (Lookback).
     - Optional kann max_override gesetzt werden, um den Lookback hart zu überschreiben.
+    - Zusätzlich wird der erzeugte Text auf max_chars Zeichen begrenzt.
     """
 
     if df is None or df.empty:
         return "Keine Kursdaten verfügbar."
 
     # Dynamische Lookbacks pro Timeframe
-    # (hier verwendest du im UI z.B. "1m", "5m", "15m", "1h", "4h", "1d")
     lookbacks = {
         "1m": 300,   # ca. ein paar Stunden
         "5m": 300,   # ca. ein Tag
@@ -132,25 +155,13 @@ def _compress_df_for_llm(
         sig_text = ", ".join([f"{k}: {v}" for k, v in sig_counts.items()])
         parts.append(f"- Signal-Häufigkeit: {sig_text}")
 
-    return "\n".join(parts)
+    summary = "\n".join(parts)
 
+    # Zusätzliche Sicherheitsbremse: max_chars
+    if len(summary) > max_chars:
+        summary = summary[: max_chars - 40].rstrip() + "\n…(Chart-Zusammenfassung gekürzt)…"
 
-def _looks_like_html_error(text: str) -> bool:
-    """
-    Erkenne typische HTML-Fehlerseiten (Cloudflare, 500er, etc.),
-    damit wir sie nicht roh im UI anzeigen.
-    """
-    if not text:
-        return False
-
-    t = text.strip().lower()
-    return (
-        t.startswith("<!doctype html")
-        or t.startswith("<html")
-        or "cloudflare" in t
-        or "cf-error" in t
-        or "</html>" in t
-    )
+    return summary
 
 
 # ---------------------------------------------------------
@@ -166,10 +177,11 @@ def ask_copilot(
     """
     Ruft Groq als CoPilot auf.
 
-    - Nutzt kompakten, dynamisch zugeschnittenen Chart-Kontext
-      (Lookback je nach Timeframe).
-    - Liefert Text/Markdown (kein HTML-Output gewünscht).
-    - Erkennt Groq/Cloudflare-HTML-Fehlerseiten und gibt schöne Meldungen aus.
+    Sicherheitsaspekte:
+    - Frage wird auf eine maximale Länge begrenzt.
+    - DF-Zusammenfassung ist in Kerzen und Zeichen limitiert.
+    - Antwort ist immer Text/Markdown, ohne HTML.
+    - HTML-Fehlerseiten von Groq/Cloudflare werden erkannt und in saubere Meldungen übersetzt.
     """
     if not question or not str(question).strip():
         return "Bitte zuerst eine sinnvolle Frage an den CoPilot eingeben."
@@ -186,8 +198,15 @@ def ask_copilot(
     if last_signal is None:
         last_signal = "NO DATA"
 
+    # Benutzerfrage hart begrenzen (z.B. 1200 Zeichen),
+    # um grobe Prompt-Explosionen zu vermeiden.
+    raw_question = str(question).strip()
+    max_question_chars = 1200
+    if len(raw_question) > max_question_chars:
+        raw_question = raw_question[: max_question_chars - 40].rstrip() + " … (Frage gekürzt)"
+
     # Kompakte Beschreibung der Marktdaten für den Prompt
-    df_summary = _compress_df_for_llm(df, timeframe=timeframe)
+    df_summary = _compress_df_for_llm(df, timeframe=timeframe, max_chars=2000)
 
     # SYSTEM PROMPT — MIT MA200 & ohne HTML
     system_prompt = (
@@ -215,7 +234,7 @@ def ask_copilot(
         f"Timeframe: {timeframe}\n"
         f"Aktueller Signalscore: {last_signal}\n\n"
         f"Technische Daten (kompakt):\n{df_summary}\n\n"
-        f"Benutzerfrage:\n{question}\n\n"
+        f"Benutzerfrage:\n{raw_question}\n\n"
         "Bitte:\n"
         "1. Beschreibe kurz das aktuelle technische Setup.\n"
         "2. Gehe ein auf:\n"
@@ -242,7 +261,7 @@ def ask_copilot(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_completion_tokens=900,
+            max_completion_tokens=900,  # Output begrenzen
         )
 
         content = response.choices[0].message.content or ""
