@@ -966,20 +966,22 @@ def main():
             auto_key = f"copilot_auto_{symbol_label}_{tf_label}"
 
             def run_auto_analysis():
-                """Startet eine automatische CoPilot-Analyse und speichert das Ergebnis im Session State."""
-                with st.spinner("CoPilot analysiert den Chart..."):
-                    st.session_state[auto_key] = ask_copilot(
-                        question=(
-                            "Erstelle eine kompakte, neutrale technische Analyse des aktuellen Charts. "
-                            "Konzentriere dich auf Trend, Momentum (RSI), Volumen, grobe Unterstützungs- und "
-                            "Widerstandsbereiche sowie mögliche bullische und bärische Szenarien. "
-                            "Weise ausdrücklich darauf hin, dass dies keine Finanzberatung ist."
-                        ),
-                        df=df,
-                        symbol=symbol_label,
-                        timeframe=tf_label,
-                        last_signal=sig,
-                    )
+            """Startet eine automatische CoPilot-Analyse und speichert das Ergebnis im Session State."""
+            with st.spinner("CoPilot analysiert den Chart..."):
+                st.session_state[auto_key] = ask_copilot(
+                    question=(
+                        "Erstelle eine kompakte, neutrale technische Analyse des aktuellen Charts. "
+                        "Nutze explizit RSI(14), EMA20, EMA50, MA200, Bollinger-Bänder und die "
+                        "Candlestick-Struktur (Trend, Pullbacks, Übertreibungen). "
+                        "Gib einen Überblick zu Trend, Momentum, Volumen, wichtigen Zonen "
+                        "und nenne je ein bullisches und ein bärisches Szenario. "
+                        "Weise ausdrücklich darauf hin, dass dies keine Finanzberatung ist."
+                    ),
+                    df=df,
+                    symbol=symbol_label,
+                    timeframe=tf_label,
+                    last_signal=sig,
+                )
 
             # Beim ersten Aufruf für dieses Symbol/TF automatisch Analyse holen
             if auto_key not in st.session_state:
