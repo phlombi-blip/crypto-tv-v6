@@ -17,7 +17,8 @@ def get_groq_client() -> Optional[Groq]:
     """
     Erzeugt einmalig einen Groq-Client und cached ihn für die Session.
     Sucht den API-Key zuerst in Streamlit-Secrets, dann in Umgebungsvariablen.
-    Erwartete Secrets-Struktur:
+
+    Erwartete Secrets-Struktur in .streamlit/secrets.toml:
     [groq]
     api_key = "gsk_..."
     """
@@ -40,16 +41,35 @@ def get_groq_client() -> Optional[Groq]:
 
 
 # ---------------------------------------------------------
-# Daten kompakt für LLM zusammenfassen
+# Daten kompakt für LLM zusammenfassen (mit dynamischem Lookback)
 # ---------------------------------------------------------
-def _compress_df_for_llm(df: pd.DataFrame, max_rows: int = 200) -> str:
+def _compress_df_for_llm(
+    df: pd.DataFrame,
+    timeframe: str,
+    max_override: Optional[int] = None,
+) -> str:
     """
-    Reduziert den Chart auf ein kompaktes Text-Preview,
-    damit der Prompt klein bleibt und keine 413-Fehler kommen.
-    Nutzt nur die letzten max_rows Kerzen.
+    Reduziert den Chart auf ein kompaktes Text-Preview für den Prompt.
+
+    - Verwendet je nach Timeframe unterschiedlich viele Kerzen (Lookback).
+    - Optional kann max_override gesetzt werden, um den Lookback hart zu überschreiben.
     """
+
     if df is None or df.empty:
         return "Keine Kursdaten verfügbar."
+
+    # Dynamische Lookbacks pro Timeframe
+    # (hier verwendest du im UI z.B. "1m", "5m", "15m", "1h", "4h", "1d")
+    lookbacks = {
+        "1m": 300,   # ca. ein paar Stunden
+        "5m": 300,   # ca. ein Tag
+        "15m": 300,  # 2–3 Tage
+        "1h": 300,   # ca. 12–13 Tage
+        "4h": 250,   # ca. 6–7 Wochen
+        "1d": 250,   # ca. 8 Monate
+    }
+
+    max_rows = max_override if max_override is not None else lookbacks.get(timeframe, 250)
 
     # Nur die letzten max_rows Kerzen verwenden
     if len(df) > max_rows:
@@ -62,7 +82,7 @@ def _compress_df_for_llm(df: pd.DataFrame, max_rows: int = 200) -> str:
     rsi = float(last.get("rsi14", float("nan")))
     ema20 = float(last.get("ema20", float("nan")))
     ema50 = float(last.get("ema50", float("nan")))
-    ma200 = float(last.get("ma200", float("nan")))  # WICHTIG: MA200 hier!
+    ma200 = float(last.get("ma200", float("nan")))  # WICHTIG: MA200, kein EMA200
 
     bb_mid = float(last.get("bb_mid", float("nan")))
     bb_up = float(last.get("bb_up", float("nan")))
@@ -93,7 +113,7 @@ def _compress_df_for_llm(df: pd.DataFrame, max_rows: int = 200) -> str:
             sig_counts[str(sig)] = int(cnt)
 
     parts = [
-        "Aktuelle Candle:",
+        f"Aktuelle Candle (auf Basis von {len(df)} Kerzen im Timeframe {timeframe}):",
         f"- Close: {close:.2f}",
         f"- RSI14: {rsi:.2f}",
         f"- EMA20: {ema20:.2f}",
@@ -145,9 +165,11 @@ def ask_copilot(
 ) -> str:
     """
     Ruft Groq als CoPilot auf.
-    - Nutzt kompakten Chart-Kontext
-    - Liefert Text/Markdown (ohne HTML)
-    - Erkennung von Groq/Cloudflare-HTML-Fehlerseiten
+
+    - Nutzt kompakten, dynamisch zugeschnittenen Chart-Kontext
+      (Lookback je nach Timeframe).
+    - Liefert Text/Markdown (kein HTML-Output gewünscht).
+    - Erkennt Groq/Cloudflare-HTML-Fehlerseiten und gibt schöne Meldungen aus.
     """
     if not question or not str(question).strip():
         return "Bitte zuerst eine sinnvolle Frage an den CoPilot eingeben."
@@ -164,12 +186,13 @@ def ask_copilot(
     if last_signal is None:
         last_signal = "NO DATA"
 
-    df_summary = _compress_df_for_llm(df)
+    # Kompakte Beschreibung der Marktdaten für den Prompt
+    df_summary = _compress_df_for_llm(df, timeframe=timeframe)
 
-    # SYSTEM PROMPT — MIT MA200
+    # SYSTEM PROMPT — MIT MA200 & ohne HTML
     system_prompt = (
         "Du bist ein nüchterner, technischer Analyst für Kryptowährungen.\n"
-        "Du nutzt ausschließlich die folgenden Indikatoren:\n"
+        "Du nutzt ausschließlich die folgenden Indikatoren aus den gelieferten Daten:\n"
         "- RSI(14)\n"
         "- EMA20\n"
         "- EMA50\n"
@@ -178,14 +201,15 @@ def ask_copilot(
         "- Candlestick-Struktur\n"
         "- Volumen\n\n"
         "Du interpretierst Trend, Momentum, Volatilität, Unterstützungen/Widerstände "
-        "und mögliche psychologische Muster.\n\n"
-        "Du gibst KEINE Finanz- oder Anlageberatung. Jede Handelsidee ist rein hypothetisch.\n\n"
+        "sowie mögliche psychologische Muster (FOMO, Angst, Panik, Rebound).\n\n"
+        "Du gibst KEINE Finanz- oder Anlageberatung. Jede Handelsidee ist rein "
+        "hypothetisch und unsicher.\n\n"
         "WICHTIG:\n"
-        "- Antworte nur in Text oder Markdown.\n"
+        "- Antworte nur in normalem Text oder Markdown.\n"
         "- Verwende KEINE HTML-Tags wie <p>, <ul>, <li>, <div>, <span>, <br>."
     )
 
-    # USER PROMPT — MIT MA200
+    # USER PROMPT — MIT MA200 & klaren Aufgaben
     user_prompt = (
         f"Symbol: {symbol}\n"
         f"Timeframe: {timeframe}\n"
@@ -193,21 +217,21 @@ def ask_copilot(
         f"Technische Daten (kompakt):\n{df_summary}\n\n"
         f"Benutzerfrage:\n{question}\n\n"
         "Bitte:\n"
-        "1. Beschreibe kurz das aktuelle Setup.\n"
+        "1. Beschreibe kurz das aktuelle technische Setup.\n"
         "2. Gehe ein auf:\n"
         "   - Trend (EMA20/EMA50/MA200)\n"
         "   - Momentum (RSI)\n"
         "   - Volatilität / Bollinger-Bänder\n"
-        "   - Candlesticks (Druck, Stärke/Schwäche, Umkehr)\n"
-        "   - Unterstützungen und Widerstände\n"
+        "   - Candlesticks (Druck, Stärke/Schwäche, Umkehrsignale)\n"
+        "   - Wichtige Unterstützungs- und Widerstandszonen\n"
         "3. Gib ein bullisches und ein bärisches Szenario.\n"
         "4. Formuliere eine rein technische, hypothetische Handelsidee:\n"
-        "   - mögliche Einstiegszone\n"
-        "   - mögliche Stop-Zone\n"
-        "   - mögliche Zielzone\n"
-        "   - konservativ oder aggressiv\n"
-        "5. Betone, dass es keine Anlageberatung ist.\n"
-        "6. KEINE HTML-Tags verwenden — nur Markdown/Text.\n"
+        "   - mögliche Einstiegszone (Preisbereich)\n"
+        "   - mögliche Stop-Zone (Preisbereich)\n"
+        "   - mögliche Zielzone (Preisbereich)\n"
+        "   - ob die Idee eher konservativ oder aggressiv ist\n"
+        "5. Betone am Ende klar, dass dies KEINE Anlageberatung ist.\n"
+        "6. Antworte in Text oder Markdown – KEINE HTML-Tags verwenden.\n"
     )
 
     try:
@@ -224,11 +248,12 @@ def ask_copilot(
         content = response.choices[0].message.content or ""
         stripped = content.strip()
 
-        # HTML-Error-Erkennung
+        # Falls Groq/Cloudflare uns eine HTML-Seite als "Antwort" schickt:
         if _looks_like_html_error(stripped):
             return (
                 "❌ KI Fehler (Groq): Der KI-Dienst hat eine HTML-Fehlerseite "
                 "(z.B. 500 / Cloudflare) zurückgegeben.\n"
+                "Das liegt an der Gegenstelle, nicht an deiner Anfrage. "
                 "Bitte später erneut versuchen."
             )
 
@@ -238,21 +263,34 @@ def ask_copilot(
         msg = str(e).strip()
         lower_msg = msg.lower()
 
+        # Wenn der Fehlertext selbst nach HTML aussieht → generische, kurze Meldung
         if _looks_like_html_error(msg):
             return (
-                "❌ KI Fehler (Groq): Eine HTML-Fehlerseite wurde zurückgegeben.\n"
-                "Bitte später erneut versuchen."
+                "❌ KI Fehler (Groq): Der KI-Server hat intern eine HTML-Fehlerseite "
+                "(z.B. 500 / Cloudflare) geliefert.\n"
+                "Du kannst daran nichts ändern – der Dienst war vermutlich kurzzeitig "
+                "nicht erreichbar. Bitte später erneut versuchen."
             )
 
+        # Falls die Exception z.B. sowas enthält wie
+        # "... 500 Internal Server Error ... <!DOCTYPE html> ...",
+        # schneiden wir ab dem HTML-Teil weg:
         if "<!doctype html" in lower_msg:
-            msg = msg.split("<!doctype html")[0].strip()
+            msg = msg.split("<!doctype html", 1)[0].strip()
+            lower_msg = msg.lower()
 
-        if any(x in lower_msg for x in ["request too large", "413", "tokens per minute"]):
+        # Token-/Größenlimit / Rate-Limit
+        if (
+            "request too large" in lower_msg
+            or "tokens per minute" in lower_msg
+            or "413" in lower_msg
+        ):
             return (
-                "❌ KI Fehler (Groq): Die Anfrage war zu groß oder überschreitet das Token-/Rate-Limit.\n"
-                "Bitte Zeitraum verkleinern oder Frage vereinfachen."
+                "❌ KI Fehler (Groq): Die Anfrage war zu groß oder hat ein Token-/Rate-Limit überschritten.\n"
+                "Wähle einen kürzeren Zeitraum oder stelle eine einfachere Frage."
             )
 
+        # Generischer, gekürzter Fehler
         if len(msg) > 400:
             msg = msg[:400] + " …"
 
