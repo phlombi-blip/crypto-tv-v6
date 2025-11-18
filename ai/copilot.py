@@ -285,39 +285,36 @@ def ask_copilot(
     
         "Strukturiere deine Antwort bitte genau in diese 4 Abschnitte:\n\n"
     
-        "### 1. Kurzfassung\n"
+        "1) Kurzfassung (max. 3 Bulletpoints)\n"
         "- Maximal 1 Satz pro Bullet.\n"
         "- Fokus: Trend, Risiko, Chance im aktuellen Setup.\n\n"
     
-        "### 2. Technische Analyse des Charts\n"
-        "- Beschreibe klar den Trend: Lage von EMA20/EMA50 relativ zur MA200, Steigung und Trendstärke.\n"
-        "- Bollinger-Bänder (PFLICHT):\n"
-        "  * gib die genaue Lage des Kurses an (oberes/mittleres/unteres Band),\n"
-        "  * ob sich die Bänder ausweiten oder verengen,\n"
-        "  * ob eine Mean-Reversion oder Trend-Expansion wahrscheinlicher ist.\n"
-        "- Candlesticks (PFLICHT):\n"
-        "  * benenne mindestens zwei konkrete Beobachtungen: z.B. Hammer, Shooting Star, Engulfing, Marubozu,\n"
-        "    lange Dochte, kleine Bodies, Impuls-Candles,\n"
-        "  * und erkläre, ob sie Stärke oder Schwäche anzeigen.\n"
+        "2) Freie technische Analyse des Charts\n"
+        "- Beschreibe klar den Trend: EMA20/EMA50 relativ zur MA200.\n"
+        "- Bollinger-Bänder (PFLICHT): Lage am oberen/mittleren/unteren Band, Enge/Expansion, Mean-Reversion oder Trendfortsetzung.\n"
+        "- Candlesticks (PFLICHT): Gib mind. 2 konkrete Muster oder signifikante Beobachtungen an (Dochte, Bodies, Engulfing, Hammer, Shooting Star). Erkläre, ob sie Stärke oder Schwäche anzeigen.\n"
         "- RSI(14): überkauft/überverkauft, Momentum, Divergenzen.\n"
-        "- Unterstützungen/Widerstände: definiere die wichtigsten Preiszonen (MA200, mittleres Band, EMA20/EMA50, Swing-High/Low).\n\n"
+        "- Unterstützungen/Widerstände: wichtigste Preiszonen.\n\n"
     
-        "###  3. Einordnung im Kontext der Strategie\n"
-        "- Beurteile, ob die Situation zu STRONG BUY, BUY, SELL, STRONG SELL oder HOLD passt.\n"
-        "- Vergleiche kurz dein Urteil mit dem Signalscore.\n"
-        "- Wenn der Kurs unter MA200 liegt oder die MA200 fehlt, ist die Strategie IMMER HOLD.\n\n"
+        "3) Einordnung im Kontext der Strategie\n"
+        "- Ordne das Setup einer der Kategorien zu: STRONG BUY / BUY / SELL / STRONG SELL / HOLD.\n"
+        "- Vergleiche dein Urteil mit dem Signalscore.\n"
+        "- Wenn der Kurs unter MA200 liegt oder die MA200 fehlt, MUSS die Strategie zu 100 % HOLD sein – egal wie stark RSI oder Bollinger ein Long-Signal andeuten.\n\n"
     
-        "### 4. Hypothetische Handelsidee (keine Anlageberatung)\n"
-        "- Formuliere eine Einstiegszone (Preisbereich) basierend auf Chart und Indikatoren.\n"
-        "- Nenne eine passende Stop-Zone und begründe sie (z.B. Bruch unter Unterstützung oder unteres Band).\n"
-        "- Nenne eine Zielzone und begründe sie (z.B. mittleres/oberes Band, MA200, markanter Widerstand).\n"
-        "- Sag klar, ob die Idee konservativ oder aggressiv ist.\n"
-        "- Beende mit einem deutlichen Satz, dass dies KEINE Anlageberatung ist.\n\n"
+        "4) Hypothetische, rein technische Handelsidee (keine Anlageberatung)\n"
+        "- WICHTIG: Wenn der Kurs unter MA200 liegt, FORMULIERE KEINE Einstiegs-, Stop- oder Zielzone.\n"
+        "- Stattdessen: Beschreibe nur neutral die Risiken, mögliche Szenarien und was passieren müsste, damit Long-Setups wieder gültig wären (z.B. Reclaim der MA200, Break über EMA50).\n"
+        "- Wenn der Kurs über MA200 liegt, darfst du eine klassische Idee formulieren:\n"
+        "  * mögliche Einstiegszone basierend auf Unterstützungen\n"
+        "  * Stop-Zone unter markanter Struktur\n"
+        "  * Zielzone (mittleres/oberes Band, MA200, Widerstand)\n"
+        "- Schließe IMMER mit einem klaren Hinweis, dass dies KEINE Anlageberatung ist.\n\n"
     
         "WICHTIG:\n"
         "- Schreibe kompakt und vermeide Wiederholungen.\n"
         "- Antworte nur in Text oder Markdown, ohne HTML-Tags.\n"
     )
+
 
 
 
