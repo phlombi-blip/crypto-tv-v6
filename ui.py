@@ -999,20 +999,13 @@ def main():
             # --- TAB 1: Auto-Analyse / Insights (nur CoPilot) ---
             with tab_auto:
                 st.markdown(f"**Automatische KI-Analyse ({symbol_label} – {tf_label})**")
-                st.write(auto_text)
-
-                # Button zum manuell Neuberechnen
             
-                # Button zuerst – falls geklickt, neue Analyse generieren
                 if st.button(
                     "🔄 Analyse aktualisieren",
                     key=f"btn_reanalyse_{symbol_label}_{tf_label}",
                 ):
                     run_auto_analysis()
-                    # neuen Text direkt anzeigen
-                    st.write(st.session_state.get(auto_key, "Analyse fehlgeschlagen."))
             
-                # Danach IMMER genau einmal den aktuellen Text anzeigen
                 auto_text = st.session_state.get(auto_key, "Noch keine Analyse verfügbar.")
                 st.write(auto_text)
 
@@ -1029,16 +1022,19 @@ def main():
                 )
                 st.session_state.copilot_question = question
 
-                if st.button("Antwort vom CoPilot holen", key="btn_copilot_chat"):
+                if st.button(
+                    "Antwort vom CoPilot holen",
+                    key=f"btn_copilot_chat_{symbol_label}_{tf_label}",
+                ):
                     if not question.strip():
                         st.warning("Bitte zuerst eine Frage eingeben.")
                     else:
                         with st.spinner("CoPilot denkt nach..."):
                             answer = ask_copilot(
                                 question=question,
+                                df=df,
                                 symbol=symbol_label,
                                 timeframe=tf_label,
-                                df=df,
                                 last_signal=sig,
                             )
                         st.markdown("**Antwort:**")
