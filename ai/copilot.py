@@ -140,7 +140,11 @@ def ask_copilot(
         f"Timeframe: {timeframe}\n"
         f"Aktueller Signalscore: {last_signal}\n\n"
         f"Technische Daten (kompakt):\n{df_summary}\n\n"
-        f"Benutzerfrage / Aufgabe:\n{question}"
+        f"Benutzerfrage / Aufgabe:\n{question}\n\n"
+        "Antwortformat:\n"
+        "- Antworte in normalem Text oder Markdown.\n"
+        "- Verwende KEINE HTML-Tags wie <p>, <br>, <ul>, <li>, <div>, <span> usw.\n"
+        "- Nutze bei Bedarf Aufzählungen mit Markdown (-, *, 1.) statt HTML.\n"
     )
 
     try:
