@@ -125,16 +125,13 @@ def ask_copilot(
     df_summary = _compress_df_for_llm(df)
 
     # Systemprompt: Rolle des CoPiloten
-        system_prompt = (
-        "Du bist ein erfahrener technischer Analyst für Kryptowährungen. "
-        "Du interpretierst explizit RSI(14), EMA20, EMA50, MA200, Bollinger-Bänder "
-        "und Candlestick-Strukturen (Trend, Pullbacks, Übertreibungen). "
-        "Du gibst KEINE persönliche Anlageberatung und kennst weder Depotgröße noch Risikoprofil. "
-        "Du darfst aber eine neutrale, hypothetische Handelsidee basierend auf der technischen Lage "
-        "und typischer Marktpsychologie formulieren. "
-        "Diese Idee muss immer klar als unsicheres Szenario dargestellt werden, mit Risiko-Hinweis. "
-        "WICHTIG: Antworte ausschließlich in normalem Text bzw. Markdown "
-        "und verwende KEINE HTML-Tags wie <p>, <ul>, <li>, <br> usw."
+    system_prompt = (
+        "Du bist ein nüchterner technischer Marktanalyst für Kryptowährungen. "
+        "Du nutzt ausschließlich technische Analyse (RSI, EMAs, MA200, Bollinger-Bänder, Candles, Volumen) "
+        "und machst KEINE Finanz- oder Anlageberatung. "
+        "Formuliere klar, strukturiert und eher kurz, ohne unnötige Wiederholungen. "
+        "Wenn du eine 'Handelsidee' beschreibst, mache deutlich, dass es nur ein "
+        "hypothetisches, technisches Beispiel ist."
     )
 
     # User-Prompt: Chart-Kontext + Nutzerfrage
@@ -154,35 +151,49 @@ def ask_copilot(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_tokens=900,  # bewusst begrenzt, damit die Antwort nicht explodiert
+            max_tokens=900,  # begrenzt halten
         )
 
-        content = response.choices[0].message.content
-        return content.strip()
+        content = response.choices[0].message.content or ""
+        stripped = content.strip()
+        lower = stripped.lower()
+
+        # 🔴 Falls Groq/Cloudflare uns eine HTML-Seite als Antwort schickt:
+        if (
+            lower.startswith("<!doctype html")
+            or lower.startswith("<html")
+            or "cloudflare" in lower and "error" in lower
+            or "cf-error" in lower
+        ):
+            return (
+                "❌ KI Fehler (Groq): Der KI-Dienst hat eine HTML-Fehlerseite "
+                "(vermutlich 5xx / Cloudflare) zurückgegeben.\n"
+                "Das liegt an der Gegenstelle, nicht an deiner Anfrage. "
+                "Bitte später erneut versuchen."
+            )
+
+        return stripped
 
     except Exception as e:
-        # Rohtext der Exception
         msg = str(e)
-
-        # 1) HTML / Cloudflare 5xx → kurze, saubere Meldung
         lower_msg = msg.lower()
+
+        # 🔴 HTML / Cloudflare-Fehler im Exception-Text
         if "<!doctype html" in lower_msg or "<html" in lower_msg:
             return (
-                "❌ KI Fehler (Groq): Der KI-Server hat eine technische 500-Fehlermeldung zurückgegeben.\n"
-                "Das liegt nicht an deiner Anfrage, sondern an der Gegenstelle (Cloudflare / Groq).\n"
+                "❌ KI Fehler (Groq): Der KI-Server hat intern eine HTML-Fehlerseite "
+                "zurückgegeben (Cloudflare / 5xx).\n"
                 "Bitte versuche es später erneut."
             )
 
-        # 2) Token-/Größenlimit (413 / tokens)
+        # Token-/Größenlimit
         if "request too large" in lower_msg or "tokens per minute" in lower_msg or "413" in lower_msg:
             return (
-                "❌ KI Fehler (Groq): Die Anfrage war zu groß für das aktuelle Modell/Limit.\n"
-                "Versuche es mit einem kürzeren Zeitraum oder einer einfacheren Frage erneut."
+                "❌ KI Fehler (Groq): Die Anfrage war zu groß für das aktuelle Limit.\n"
+                "Wähle einen kürzeren Zeitraum oder stelle eine einfachere Frage."
             )
 
-        # 3) Fallback: generische Fehlermeldung ohne HTML-Spam
-        # Falls die Meldung extrem lang ist, abschneiden.
+        # Generischer, gekürzter Fehler
         if len(msg) > 400:
             msg = msg[:400] + " …"
-
         return f"❌ KI Fehler (Groq): {msg}"
