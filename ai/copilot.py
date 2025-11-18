@@ -209,24 +209,47 @@ def ask_copilot(
     df_summary = _compress_df_for_llm(df, timeframe=timeframe, max_chars=2000)
 
     # SYSTEM PROMPT — MIT MA200 & ohne HTML
-    system_prompt = (
-        "Du bist ein nüchterner, technischer Analyst für Kryptowährungen.\n"
-        "Du nutzt ausschließlich die folgenden Indikatoren aus den gelieferten Daten:\n"
-        "- RSI(14)\n"
-        "- EMA20\n"
-        "- EMA50\n"
-        "- MA200\n"
-        "- Bollinger-Bänder (20)\n"
-        "- Candlestick-Struktur\n"
-        "- Volumen\n\n"
-        "Du interpretierst Trend, Momentum, Volatilität, Unterstützungen/Widerstände "
-        "sowie mögliche psychologische Muster (FOMO, Angst, Panik, Rebound).\n\n"
-        "Du gibst KEINE Finanz- oder Anlageberatung. Jede Handelsidee ist rein "
-        "hypothetisch und unsicher.\n\n"
+    user_prompt = (
+        f"Symbol: {symbol}\n"
+        f"Timeframe: {timeframe}\n"
+        f"Aktueller Signalscore: {last_signal}\n\n"
+        f"Technische Daten (kompakt):\n{df_summary}\n\n"
+        f"Benutzerfrage:\n{raw_question}\n\n"
+        "Strukturiere deine Antwort bitte genau in diese 4 Abschnitte:\n\n"
+        "1) Kurzfassung (max. 3 Bulletpoints)\n"
+        "- Maximal 1 Satz pro Bullet.\n"
+        "- Fokus: Trend, Risiko, Chance.\n\n"
+        "2) Technische Analyse des Charts\n"
+        "- Trend & Kreuzungen: Lage von EMA20/EMA50 zur MA200, z.B. Golden/Death Cross, "
+        "Kurs über/unter diesen Linien, Pullbacks zur EMA20/EMA50.\n"
+        "- RSI(14): Überkauft/überverkauft, Divergenzen, ob er steigt oder fällt.\n"
+        "- Bollinger-Bänder: Position des Kurses (oberes/mittleres/unteres Band), "
+        "Bandbreite (enge Range vs. Expansion), mögliche Ausbrüche oder Mean-Reversion.\n"
+        "- Candlesticks: auffällige Kerzen (lange Dochte, Engulfing, Hammer/Shooting Star), "
+        "ob sie Stärke oder Schwäche zeigen.\n"
+        "- Unterstützungen/Widerstände: wichtige Preiszonen, die aus dem Verlauf "
+        "und den Indikatoren ableitbar sind.\n\n"
+        "3) Szenarien\n"
+        "- Bullisches Szenario: Was müsste passieren, damit sich der Kurs nach oben "
+        "durchsetzt (welche Signale von RSI, EMAs, BB, Candles)?\n"
+        "- Bärisches Szenario: Was müsste passieren, damit der Abwärtstrend sich fortsetzt "
+        "oder verstärkt?\n\n"
+        "4) Hypothetische, rein technische Handelsidee (keine Anlageberatung)\n"
+        "- Nenne eine mögliche Einstiegszone (Preisbereich) mit Begründung "
+        "(z.B. Rücklauf auf EMA20, Test einer Unterstützung, Rebound am unteren Bollinger-Band).\n"
+        "- Nenne eine grobe Stop-Zone (Preisbereich) mit Begründung "
+        "(z.B. Bruch unter wichtige Unterstützung oder unteres Band).\n"
+        "- Nenne eine grobe Zielzone (Preisbereich) mit Begründung "
+        "(z.B. Rücklauf zur MA200, Retest eines Widerstands, mittleres/oberes Bollinger-Band).\n"
+        "- Ordne die Idee als eher konservativ oder aggressiv ein und erkläre kurz warum.\n"
+        "- Schließe mit einem klaren Satz ab, dass dies KEINE Anlageberatung ist, "
+        "sondern nur ein mögliches, unsicheres Szenario aus technischer Sicht.\n\n"
         "WICHTIG:\n"
-        "- Antworte nur in normalem Text oder Markdown.\n"
-        "- Verwende KEINE HTML-Tags wie <p>, <ul>, <li>, <div>, <span>, <br>."
+        "- Schreibe kompakt und vermeide Wiederholungen.\n"
+        "- Antworte nur in Text oder Markdown, ohne HTML-Tags.\n"
     )
+
+
 
     # USER PROMPT — MIT MA200 & klaren Aufgaben
     user_prompt = (
@@ -235,23 +258,40 @@ def ask_copilot(
         f"Aktueller Signalscore: {last_signal}\n\n"
         f"Technische Daten (kompakt):\n{df_summary}\n\n"
         f"Benutzerfrage:\n{raw_question}\n\n"
-        "Bitte:\n"
-        "1. Beschreibe kurz das aktuelle technische Setup.\n"
-        "2. Gehe ein auf:\n"
-        "   - Trend (EMA20/EMA50/MA200)\n"
-        "   - Momentum (RSI)\n"
-        "   - Volatilität / Bollinger-Bänder\n"
-        "   - Candlesticks (Druck, Stärke/Schwäche, Umkehrsignale)\n"
-        "   - Wichtige Unterstützungs- und Widerstandszonen\n"
-        "3. Gib ein bullisches und ein bärisches Szenario.\n"
-        "4. Formuliere eine rein technische, hypothetische Handelsidee:\n"
-        "   - mögliche Einstiegszone (Preisbereich)\n"
-        "   - mögliche Stop-Zone (Preisbereich)\n"
-        "   - mögliche Zielzone (Preisbereich)\n"
-        "   - ob die Idee eher konservativ oder aggressiv ist\n"
-        "5. Betone am Ende klar, dass dies KEINE Anlageberatung ist.\n"
-        "6. Antworte in Text oder Markdown – KEINE HTML-Tags verwenden.\n"
+        "Strukturiere deine Antwort bitte genau in diese 4 Abschnitte:\n\n"
+        "1) Kurzfassung (max. 3 Bulletpoints)\n"
+        "- Maximal 1 Satz pro Bullet.\n"
+        "- Fokus: Trend, Risiko, Chance.\n\n"
+        "2) Technische Analyse des Charts\n"
+        "- Trend & Kreuzungen: Lage von EMA20/EMA50 zur MA200, z.B. Golden/Death Cross, "
+        "Kurs über/unter diesen Linien, Pullbacks zur EMA20/EMA50.\n"
+        "- RSI(14): Überkauft/überverkauft, Divergenzen, ob er steigt oder fällt.\n"
+        "- Bollinger-Bänder: Position des Kurses (oberes/mittleres/unteres Band), "
+        "Bandbreite (enge Range vs. Expansion), mögliche Ausbrüche oder Mean-Reversion.\n"
+        "- Candlesticks: auffällige Kerzen (lange Dochte, Engulfing, Hammer/Shooting Star), "
+        "ob sie Stärke oder Schwäche zeigen.\n"
+        "- Unterstützungen/Widerstände: wichtige Preiszonen, die aus dem Verlauf "
+        "und den Indikatoren ableitbar sind.\n\n"
+        "3) Szenarien\n"
+        "- Bullisches Szenario: Was müsste passieren, damit sich der Kurs nach oben "
+        "durchsetzt (welche Signale von RSI, EMAs, BB, Candles)?\n"
+        "- Bärisches Szenario: Was müsste passieren, damit der Abwärtstrend sich fortsetzt "
+        "oder verstärkt?\n\n"
+        "4) Hypothetische, rein technische Handelsidee (keine Anlageberatung)\n"
+        "- Nenne eine mögliche Einstiegszone (Preisbereich) mit Begründung "
+        "(z.B. Rücklauf auf EMA20, Test einer Unterstützung, Rebound am unteren Bollinger-Band).\n"
+        "- Nenne eine grobe Stop-Zone (Preisbereich) mit Begründung "
+        "(z.B. Bruch unter wichtige Unterstützung oder unteres Band).\n"
+        "- Nenne eine grobe Zielzone (Preisbereich) mit Begründung "
+        "(z.B. Rücklauf zur MA200, Retest eines Widerstands, mittleres/oberes Bollinger-Band).\n"
+        "- Ordne die Idee als eher konservativ oder aggressiv ein und erkläre kurz warum.\n"
+        "- Schließe mit einem klaren Satz ab, dass dies KEINE Anlageberatung ist, "
+        "sondern nur ein mögliches, unsicheres Szenario aus technischer Sicht.\n\n"
+        "WICHTIG:\n"
+        "- Schreibe kompakt und vermeide Wiederholungen.\n"
+        "- Antworte nur in Text oder Markdown, ohne HTML-Tags.\n"
     )
+
 
     try:
         response = client.chat.completions.create(
@@ -261,7 +301,7 @@ def ask_copilot(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_completion_tokens=900,  # Output begrenzen
+            max_completion_tokens=1800,  # Output begrenzen
         )
 
         content = response.choices[0].message.content or ""
