@@ -1034,42 +1034,6 @@ def main():
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-            # --- TAB 1: Auto-Analyse / Insights ---
-            with tab_auto:
-                st.markdown(f"**Auto-Analyse ({symbol_label} – {tf_label})**")
-                st.write(auto_text)
-
-            # --- TAB 2: Interaktiver KI-Chat ---
-            with tab_chat:
-                st.markdown("**Frag den CoPilot** – z.B.:")
-                st.caption("„Wie würdest du den aktuellen BTC-Chart interpretieren?“")
-                st.caption("„Welche Risiken siehst du im aktuellen Setup?“")
-
-                question = st.text_area(
-                    "Deine Frage an den KI-CoPilot",
-                    value=st.session_state.get("copilot_question", ""),
-                    height=80,
-                )
-                st.session_state.copilot_question = question
-
-                if st.button("Antwort vom CoPilot holen"):
-                    if not question.strip():
-                        st.warning("Bitte zuerst eine Frage eingeben.")
-                    else:
-                        with st.spinner("CoPilot denkt nach..."):
-                            answer = ask_copilot(
-                                question=question,
-                                symbol=symbol_label,
-                                timeframe=tf_label,
-                                df=df,
-                                last_signal=sig,
-                            )
-                        st.markdown("**Antwort:**")
-                        st.write(answer)
-
-            st.markdown("</div>", unsafe_allow_html=True)
-
-
 # ---------------------------------------------------------
 # LAUNCH
 # ---------------------------------------------------------
