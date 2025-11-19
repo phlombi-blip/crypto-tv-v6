@@ -13,6 +13,7 @@ from signals import compute_signals as compute_signals_ext, latest_signal as lat
 
 from charts import create_price_rsi_figure, create_signal_history_figure
 from email_notifier import send_signal_email
+from backtest import compute_backtest_trades as compute_backtest_trades_ext, summarize_backtest as summarize_backtest_ext
 
 # Optional: Auto-Refresh (falls Paket installiert ist)
 try:
@@ -464,139 +465,14 @@ def latest_signal(df: pd.DataFrame) -> str:
     return valid["signal"].iloc[-1] if not valid.empty else "NO DATA"
 
 
-def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.DataFrame:
-    """
-    Long-only: Einstieg bei BUY/STRONG BUY, Ausstieg beim nächsten SELL/STRONG SELL,
-    Time-Stop nach max_hold_bars oder letzte Kerze.
-    """
-    if df.empty or "signal" not in df.columns or "close" not in df.columns:
-        return pd.DataFrame()
-
-    rows = []
-    closes = df["close"].values
-    signals = df["signal"].values
-    idx = df.index
-    has_reason = "signal_reason" in df.columns
-
-    in_pos = False
-    entry_price = None
-    entry_idx = None
-    entry_sig = None
-    entry_reason = ""
-    entry_pos = None
-
-    for i, sig in enumerate(signals):
-        price = closes[i]
-
-        if not in_pos and sig in ["BUY", "STRONG BUY"]:
-            entry_price = price
-            entry_idx = idx[i]
-            entry_sig = sig
-            entry_reason = df["signal_reason"].iloc[i] if has_reason else ""
-            entry_pos = i
-            in_pos = True
-            continue
-
-        if in_pos and sig in ["SELL", "STRONG SELL"]:
-            exit_price = price
-            exit_idx = idx[i]
-            ret_pct = (exit_price - entry_price) / entry_price * 100
-            hold_bars = i - entry_pos
-            hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
-            rows.append(
-                {
-                    "entry_time": entry_idx,
-                    "exit_time": exit_idx,
-                    "signal": entry_sig,
-                    "exit_signal": sig,
-                    "reason": entry_reason,
-                    "entry_price": entry_price,
-                    "exit_price": exit_price,
-                    "ret_pct": float(ret_pct),
-                    "correct": bool(ret_pct > 0),
-                    "hold_bars": hold_bars,
-                    "hold_time": hold_time,
-                }
-            )
-            in_pos = False
-            continue
-
-        # Time-Stop
-        if in_pos and max_hold_bars and (i - entry_pos) >= max_hold_bars:
-            exit_price = price
-            exit_idx = idx[i]
-            ret_pct = (exit_price - entry_price) / entry_price * 100
-            hold_bars = i - entry_pos
-            hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
-            rows.append(
-                {
-                    "entry_time": entry_idx,
-                    "exit_time": exit_idx,
-                    "signal": entry_sig,
-                    "exit_signal": "TIME_STOP",
-                    "reason": entry_reason,
-                    "entry_price": entry_price,
-                    "exit_price": exit_price,
-                    "ret_pct": float(ret_pct),
-                    "correct": bool(ret_pct > 0),
-                    "hold_bars": hold_bars,
-                    "hold_time": hold_time,
-                }
-            )
-            in_pos = False
-
-    # Offene Position am Ende schließen
-    if in_pos:
-        exit_price = closes[-1]
-        exit_idx = idx[-1]
-        ret_pct = (exit_price - entry_price) / entry_price * 100
-        hold_bars = len(df) - 1 - entry_pos
-        hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
-        rows.append(
-            {
-                "entry_time": entry_idx,
-                "exit_time": exit_idx,
-                "signal": entry_sig,
-                "exit_signal": "END",
-                "reason": entry_reason,
-                "entry_price": entry_price,
-                "exit_price": exit_price,
-                "ret_pct": float(ret_pct),
-                "correct": bool(ret_pct > 0),
-                "hold_bars": hold_bars,
-                "hold_time": hold_time,
-            }
-        )
-
-    return pd.DataFrame(rows)
+def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40, tp_mult: float = 1.2, atr_mult: float = 2.0) -> pd.DataFrame:
+    """Wrapper: nutzt die Backtest-Engine aus backtest.py."""
+    return compute_backtest_trades_ext(df, max_hold_bars=max_hold_bars, tp_mult=tp_mult, atr_mult=atr_mult)
 
 
 def summarize_backtest(df_bt: pd.DataFrame):
-    if df_bt.empty:
-        return {}
-
-    summary = {
-        "total_trades": int(len(df_bt)),
-        "overall_avg_return": float(df_bt["ret_pct"].mean()),
-        "overall_hit_rate": float(df_bt["correct"].mean() * 100),
-    }
-
-    per = []
-    for sig in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
-        sub = df_bt[df_bt["signal"] == sig]
-        if sub.empty:
-            continue
-        per.append(
-            {
-                "Signal": sig,
-                "Trades": len(sub),
-                "Avg Return %": float(sub["ret_pct"].mean()),
-                "Hit Rate %": float(sub["correct"].mean() * 100),
-            }
-        )
-
-    summary["per_type"] = per
-    return summary
+    """Wrapper: nutzt summarize_backtest aus backtest.py."""
+    return summarize_backtest_ext(df_bt)
 
 
 def signal_color(signal: str) -> str:
