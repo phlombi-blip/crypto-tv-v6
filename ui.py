@@ -5,6 +5,7 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime
 from html import escape  # für sichere Tooltips d
+import plotly.graph_objects as go
 
 # KI-CoPilot Module
 from ai.copilot import ask_copilot
@@ -56,6 +57,7 @@ TIMEFRAMES = {
 
 DEFAULT_TIMEFRAME = "1d"
 VALID_SIGNALS = ["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"]
+PATTERN_LOOKBACK = 400
 
 # Wie viele Jahre Historie sollen ungefähr geladen werden?
 YEARS_HISTORY = 3.0
@@ -785,40 +787,62 @@ def main():
 
             st.markdown("---")
 
-            # Gemeinsamer Price+RSI-Chart + optional Pattern-Overlay (Top-1)
+            # Price-Chart mit optionalem Pattern-Overlay (Top-1)
             if not df.empty:
-                show_overlay = st.checkbox("Pattern-Overlay anzeigen (Top 1)", value=False, key=f"overlay_{symbol_label}_{tf_label}")
-                pat_overlay = detect_patterns(df) if show_overlay else []
-                fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
-                if show_overlay and pat_overlay:
-                    top = pat_overlay[0]
-                    color_map = {"bullish": "#22c55e", "bearish": "#ef4444", "neutral": "#a855f7"}
-                    line_color = color_map.get(top.direction, "#a855f7")
-                    if top.overlay_lines:
+                show_overlay = st.toggle("Pattern-Overlay anzeigen (Top 1)", value=False, key=f"overlay_{symbol_label}_{tf_label}")
+                df_pat = df.tail(PATTERN_LOOKBACK) if len(df) > PATTERN_LOOKBACK else df
+                pat_overlay = detect_patterns(df_pat) if show_overlay else []
+
+                if show_overlay:
+                    # Nur Kerzen + Overlay, ohne EMA/BB
+                    fig = go.Figure()
+                    fig.add_candlestick(
+                        x=df_pat.index,
+                        open=df_pat["open"],
+                        high=df_pat["high"],
+                        low=df_pat["low"],
+                        close=df_pat["close"],
+                        name="Price",
+                        increasing_line_color="#16a34a",
+                        decreasing_line_color="#ef4444",
+                        increasing_fillcolor="#16a34a",
+                        decreasing_fillcolor="#ef4444",
+                        opacity=0.9,
+                    )
+                    if pat_overlay:
+                        options = {f"{p.name} ({p.score}/100, {p.direction})": p for p in pat_overlay}
+                        sel_label = st.selectbox(
+                            "Pattern auswählen (Top-Scores)",
+                            list(options.keys()),
+                            index=0,
+                            key=f"pattern_select_{symbol_label}_{tf_label}",
+                        )
+                        top = options[sel_label]
+                        line_color = "#ffffff"
+                        offset = len(df) - len(df_pat)
                         for (i0, y0, i1, y1) in top.overlay_lines:
-                            x0 = df.index[int(i0)] if int(i0) < len(df.index) else df.index[-1]
-                            x1 = df.index[int(i1)] if int(i1) < len(df.index) else df.index[-1]
-                            fig_price_rsi.add_shape(
-                                type="line",
-                                x0=x0,
-                                y0=y0,
-                                x1=x1,
-                                y1=y1,
-                                xref="x1",
-                                yref="y1",
-                                line=dict(color=line_color, width=2, dash="dot"),
-                            )
-                        fig_price_rsi.add_annotation(
-                            x=df.index[int(top.overlay_lines[0][0])] if top.overlay_lines else df.index[-1],
-                            y=top.overlay_lines[0][1] if top.overlay_lines else df["close"].iloc[-1],
+                            i0o = int(i0) + offset
+                            i1o = int(i1) + offset
+                            x0 = df.index[i0o] if i0o < len(df.index) else df.index[-1]
+                            x1 = df.index[i1o] if i1o < len(df.index) else df.index[-1]
+                            # verlängern um 15% der Strecke nach rechts
+                            extend = max(1, int((i1o - i0o) * 0.15))
+                            x_ext = df.index[min(len(df.index) - 1, i1o + extend)]
+                            fig.add_shape(type="line", x0=x0, y0=y0, x1=x1, y1=y1, xref="x", yref="y", line=dict(color=line_color, width=2))
+                            fig.add_shape(type="line", x0=x1, y0=y1, x1=x_ext, y1=y1, xref="x", yref="y", line=dict(color=line_color, width=1, dash="dot"))
+                        fig.add_annotation(
+                            x=df_pat.index[min(len(df_pat) - 1, int(top.overlay_lines[0][0]))] if top.overlay_lines else df_pat.index[-1],
+                            y=top.overlay_lines[0][1] if top.overlay_lines else df_pat["close"].iloc[-1],
                             text=f"{top.name} ({top.score}/100)",
                             showarrow=False,
                             font=dict(color=line_color, size=12),
-                            bgcolor="rgba(255,255,255,0.08)",
-                            xref="x1",
-                            yref="y1",
+                            bgcolor="rgba(255,255,255,0.1)",
                         )
-                st.plotly_chart(fig_price_rsi, use_container_width=True)
+                    fig.update_layout(margin=dict(l=10, r=10, t=30, b=10), xaxis_title="", yaxis_title="Price")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
+                    st.plotly_chart(fig_price_rsi, use_container_width=True)
             else:
                 st.warning("Keine Daten im gewählten Zeitraum – Zeitraum anpassen oder API/Internet prüfen.")
 
