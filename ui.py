@@ -909,9 +909,36 @@ def main():
 
             st.markdown("---")
 
-            # Gemeinsamer Price+RSI-Chart
+            # Gemeinsamer Price+RSI-Chart + optional Pattern-Overlay (Top-1)
             if not df.empty:
+                show_overlay = st.checkbox("Pattern-Overlay anzeigen (Top 1)", value=False, key=f"overlay_{symbol_label}_{tf_label}")
+                pat_overlay = detect_patterns(df) if show_overlay else []
                 fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
+                if show_overlay and pat_overlay:
+                    top = pat_overlay[0]
+                    color_map = {"bullish": "#22c55e", "bearish": "#ef4444", "neutral": "#a855f7"}
+                    line_color = color_map.get(top.direction, "#a855f7")
+                    for (i0, y0, i1, y1) in top.overlay_lines:
+                        x0 = df.index[int(i0)]
+                        x1 = df.index[int(i1)]
+                        fig_price_rsi.add_shape(
+                            type="line",
+                            x0=x0,
+                            y0=y0,
+                            x1=x1,
+                            y1=y1,
+                            xref="x",
+                            yref="y",
+                            line=dict(color=line_color, width=2, dash="dot"),
+                        )
+                    fig_price_rsi.add_annotation(
+                        x=df.index[int(top.overlay_lines[0][0])] if top.overlay_lines else df.index[-1],
+                        y=top.overlay_lines[0][1] if top.overlay_lines else df["close"].iloc[-1],
+                        text=f"{top.name} ({top.score}/100)",
+                        showarrow=False,
+                        font=dict(color=line_color, size=12),
+                        bgcolor="rgba(255,255,255,0.1)",
+                    )
                 st.plotly_chart(fig_price_rsi, use_container_width=True)
             else:
                 st.warning("Keine Daten im gewählten Zeitraum – Zeitraum anpassen oder API/Internet prüfen.")
