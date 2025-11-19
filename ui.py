@@ -913,21 +913,6 @@ def main():
             if not df.empty:
                 fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
                 st.plotly_chart(fig_price_rsi, use_container_width=True)
-                # Muster-Panel direkt unter dem Chart
-                pat = detect_patterns(df)
-                with st.container():
-                    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
-                    st.markdown('<div class="tv-title">Chartmuster</div>', unsafe_allow_html=True)
-                    if not pat:
-                        st.info("Keine klaren Muster erkannt.")
-                    else:
-                        for p in pat:
-                            st.markdown(
-                                f"**{p.name}** — Score {p.score}/100 ({p.direction})  \n"
-                                f"{p.rationale}  \n"
-                                f"**Ausblick:** {p.projection}"
-                            )
-                    st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.warning("Keine Daten im gewählten Zeitraum – Zeitraum anpassen oder API/Internet prüfen.")
 
@@ -1142,6 +1127,7 @@ def main():
             # --- TAB 3: Lokale Chartmuster (ohne KI) ---
             with tab_patterns:
                 st.markdown("**Erkannte Chartmuster (heuristisch, lokal)**")
+                st.caption("Score 0-100 = Passgenauigkeit der Form; Ausblick = typische Fortsetzung (keine Garantie).")
                 if not patterns_local:
                     st.info("Keine klaren Muster erkannt.")
                 else:

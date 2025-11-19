@@ -58,7 +58,7 @@ def detect_patterns(df: pd.DataFrame) -> List[PatternHit]:
                     name="Double Top",
                     score=min(score + (15 if broke_neckline else 0), 100),
                     direction="bearish",
-                    rationale=f"zwei Hochs ähnlich hoch (+/-{closeness * 100:.1f}%)",
+                    rationale=f"Hochpunkte eng beieinander (Abstand ~{closeness * 100:.1f}%)",
                     projection=proj,
                 )
             )
@@ -77,7 +77,7 @@ def detect_patterns(df: pd.DataFrame) -> List[PatternHit]:
                     name="Double Bottom",
                     score=min(score + (15 if broke_neckline else 0), 100),
                     direction="bullish",
-                    rationale=f"zwei Tiefs ähnlich tief (+/-{closeness * 100:.1f}%)",
+                    rationale=f"Tiefpunkte eng beieinander (Abstand ~{closeness * 100:.1f}%)",
                     projection=proj,
                 )
             )
@@ -184,7 +184,7 @@ def detect_patterns(df: pd.DataFrame) -> List[PatternHit]:
                     name="Symmetric Triangle",
                     score=score,
                     direction="neutral",
-                    rationale="zusammenlaufende Hoch- und Tiefpunkte",
+                    rationale="zusammenlaufende Hoch- und Tiefpunkte (enge Range)",
                     projection="Breakout in Trendrichtung wahrscheinlich; Volumen-Bestätigung abwarten",
                 )
             )
