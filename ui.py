@@ -94,7 +94,7 @@ MARKETS = {
         "source": "yfinance",
         "symbols": {
             "NASDAQ": "^IXIC",
-            "QQQ": "QQQ",
+            "SMI": "^SSMI",
         },
         "timeframes": {
             "1d": "1d",
@@ -364,7 +364,10 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     plus_di = 100 * (plus_dm.ewm(alpha=1 / 14, adjust=False).mean() / tr14)
     minus_di = 100 * (minus_dm.ewm(alpha=1 / 14, adjust=False).mean() / tr14)
     dx = (abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9)) * 100
-    df["adx14"] = dx.ewm(alpha=1 / 14, adjust=False).mean()
+    # Guard against unexpected multi-column objects to avoid assignment errors
+    if isinstance(dx, pd.DataFrame):
+        dx = dx.squeeze()
+    df["adx14"] = pd.Series(dx, index=df.index).ewm(alpha=1 / 14, adjust=False).mean()
 
     # Relative Volume (RVOL20): aktuelles Volumen / 20er Durchschnitt
     if "volume" in df.columns:
