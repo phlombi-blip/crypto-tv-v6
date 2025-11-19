@@ -8,6 +8,8 @@ from html import escape  # für sichere Tooltips d
 
 # KI-CoPilot Module
 from ai.copilot import ask_copilot
+from ai.patterns import detect_patterns
+from signals import compute_signals as compute_signals_ext, latest_signal as latest_signal_ext, signal_color as signal_color_ext
 
 from charts import create_price_rsi_figure, create_signal_history_figure
 from email_notifier import send_signal_email
@@ -598,14 +600,8 @@ def summarize_backtest(df_bt: pd.DataFrame):
 
 
 def signal_color(signal: str) -> str:
-    return {
-        "STRONG BUY": "#00C853",
-        "BUY": "#64DD17",
-        "HOLD": "#9E9E9E",
-        "SELL": "#FF5252",
-        "STRONG SELL": "#D50000",
-        "NO DATA": "#757575",
-    }.get(signal, "#9E9E9E")
+    # Alias für Alt-Code; Hauptfarbe kommt aus signals.signal_color_ext
+    return signal_color_ext(signal)
 
 
 # ---------------------------------------------------------
@@ -733,8 +729,8 @@ def main():
                     try:
                         df_tmp = cached_fetch_klines(sym, selected_tf_internal, limit=limit_watch)
                         df_tmp = compute_indicators(df_tmp)
-                        df_tmp = compute_signals(df_tmp)
-                        sig = latest_signal(df_tmp)
+                        df_tmp = compute_signals_ext(df_tmp)
+                        sig = latest_signal_ext(df_tmp)
                     except Exception:
                         sig = "NO DATA"
 
@@ -808,7 +804,7 @@ def main():
                 # Indikatoren & Signale auf kompletter Historie
                 if not df_all.empty:
                     df_all_ind = compute_indicators(df_all.copy())
-                    df_all_ind = compute_signals(df_all_ind)
+                    df_all_ind = compute_signals_ext(df_all_ind)
 
                     if mask is not None:
                         df = df_all_ind.loc[mask]
@@ -828,7 +824,7 @@ def main():
                     feed_ok = False
                     error_msg = "Keine Daten im gewählten Zeitraum."
                 else:
-                    sig = latest_signal(df)
+                    sig = latest_signal_ext(df)
                     last = df.iloc[-1]
                     prev = df.iloc[-2]
 
@@ -894,7 +890,7 @@ def main():
                 st.caption("Signal")
                 reason_html = escape(signal_reason, quote=True)
                 st.markdown(
-                    f'<span class="signal-badge" style="background-color:{signal_color(sig)};" '
+                    f'<span class="signal-badge" style="background-color:{signal_color_ext(sig)};" '
                     f'title="{reason_html}">{sig}</span>',
                     unsafe_allow_html=True,
                 )
