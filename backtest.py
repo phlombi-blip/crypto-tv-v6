@@ -14,12 +14,14 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
     closes = df["close"].values
     signals = df["signal"].values
     idx = df.index
+    atrs = df["atr14"].values if "atr14" in df.columns else np.full(len(df), np.nan)
 
     in_pos = False
     entry_price = None
     entry_idx = None
     entry_sig = None
     entry_pos = None
+    entry_atr = None
 
     for i, sig in enumerate(signals):
         price = closes[i]
@@ -29,6 +31,7 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
             entry_idx = idx[i]
             entry_sig = sig
             entry_pos = i
+            entry_atr = atrs[i] if i < len(atrs) else np.nan
             in_pos = True
             continue
 
@@ -39,6 +42,8 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
             ret_pct = (exit_price - entry_price) / entry_price * 100
             hold_bars = i - entry_pos
             hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
+            risk_abs = (entry_atr * 2) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
+            r_multiple = (exit_price - entry_price) / risk_abs if risk_abs else np.nan
             rows.append({
                 "entry_time": entry_idx,
                 "exit_time": exit_idx,
@@ -50,6 +55,7 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
                 "correct": ret_pct > 0,
                 "hold_bars": hold_bars,
                 "hold_time": hold_time,
+                "r_multiple": r_multiple,
             })
             in_pos = False
             continue
@@ -61,6 +67,8 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
             ret_pct = (exit_price - entry_price) / entry_price * 100
             hold_bars = i - entry_pos
             hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
+            risk_abs = (entry_atr * 2) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
+            r_multiple = (exit_price - entry_price) / risk_abs if risk_abs else np.nan
             rows.append({
                 "entry_time": entry_idx,
                 "exit_time": exit_idx,
@@ -72,6 +80,7 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
                 "correct": ret_pct > 0,
                 "hold_bars": hold_bars,
                 "hold_time": hold_time,
+                "r_multiple": r_multiple,
             })
             in_pos = False
 
@@ -82,6 +91,8 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
         ret_pct = (exit_price - entry_price) / entry_price * 100
         hold_bars = len(df) - 1 - entry_pos
         hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
+        risk_abs = (entry_atr * 2) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
+        r_multiple = (exit_price - entry_price) / risk_abs if risk_abs else np.nan
         rows.append({
             "entry_time": entry_idx,
             "exit_time": exit_idx,
@@ -93,6 +104,7 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
             "correct": ret_pct > 0,
             "hold_bars": hold_bars,
             "hold_time": hold_time,
+            "r_multiple": r_multiple,
         })
 
     return pd.DataFrame(rows)
@@ -106,6 +118,7 @@ def summarize_backtest(df_bt: pd.DataFrame):
         "total_trades": len(df_bt),
         "overall_avg_return": df_bt["ret_pct"].mean(),
         "overall_hit_rate": df_bt["correct"].mean() * 100,
+        "overall_avg_r": df_bt["r_multiple"].mean() if "r_multiple" in df_bt.columns else np.nan,
     }
 
     per = []
@@ -117,6 +130,7 @@ def summarize_backtest(df_bt: pd.DataFrame):
             "Trades": len(sub),
             "Avg Return %": sub["ret_pct"].mean(),
             "Hit Rate %": sub["correct"].mean() * 100,
+            "Avg R": sub["r_multiple"].mean() if "r_multiple" in sub.columns else np.nan,
         })
 
     summary["per_type"] = per

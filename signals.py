@@ -37,18 +37,18 @@ def _signal_core_with_reason(last, prev):
         return "HOLD", "MA200 nicht verfügbar – kein Regime."
     if close < ma200:
         return "HOLD", "Unter MA200 – kein Long-Regime."
-    if pd.notna(adx) and adx < 20:
-        return "HOLD", "Trend zu schwach (ADX < 20)."
-    if pd.notna(rvol) and rvol < 0.9:
-        return "HOLD", "Volumen zu dünn (RVOL < 0.9)."
+    if pd.notna(adx) and adx < 22:
+        return "HOLD", "Trend zu schwach (ADX < 22)."
+    if pd.notna(rvol) and rvol < 1.0:
+        return "HOLD", "Volumen zu dünn (RVOL < 1.0)."
     if pd.notna(atr_pct) and atr_pct > 9:
         return "HOLD", "Volatilität zu hoch (>9% ATR/Close)."
 
     trend_ok = ema20 > ema50 > ma200
 
     # Trend-Dip
-    dip_zone = (close <= ema20 * 1.025) and (close >= ema50 * 0.95)
-    dip_rsi = (38 <= rsi_now <= 56) and (rsi_now > rsi_prev)
+    dip_zone = (close <= ema20 * 1.02) and (close >= ema50 * 0.98)
+    dip_rsi = (40 <= rsi_now <= 56) and (rsi_now > rsi_prev)
     if trend_ok and dip_zone and dip_rsi:
         return (
             "BUY",
@@ -58,16 +58,16 @@ def _signal_core_with_reason(last, prev):
     # Breakout
     recent_high = max(prev["high"], last["high"])
     breakout_price = (close > recent_high) and (close > ema20)
-    breakout_rsi = (50 <= rsi_now <= 65) and (rsi_now >= rsi_prev)
-    breakout_vol = (pd.isna(rvol) or rvol >= 1.05)
+    breakout_rsi = (50 <= rsi_now <= 62) and (rsi_now >= rsi_prev)
+    breakout_vol = (pd.isna(rvol) or rvol >= 1.2)
     if trend_ok and breakout_price and breakout_rsi and breakout_vol:
         return (
             "BUY",
-            "Trend-Breakout: Über MA200/EMA20/EMA50 mit neuem Hoch, RSI 50–65 steigend und Volumen-Expansion.",
+            "Trend-Breakout: Über MA200/EMA20/EMA50 mit neuem Hoch, RSI 50–62 steigend und Volumen-Expansion.",
         )
 
     # Reclaim
-    reclaim = (prev_close < ema50) and (close > ema50) and (rsi_now > rsi_prev) and (rsi_now >= 46)
+    reclaim = (prev_close < ema50) and (close > ema50) and (rsi_now > rsi_prev) and (rsi_now >= 48) and (pd.isna(rvol) or rvol >= 1.0)
     if trend_ok and reclaim:
         return (
             "BUY",

@@ -999,10 +999,12 @@ def main():
                     if not stats:
                         st.info("Keine verwertbaren Trades.")
                     else:
-                        kpi_cols = st.columns(3)
+                        kpi_cols = st.columns(4)
                         kpi_cols[0].metric("Trades", stats["total_trades"])
                         kpi_cols[1].metric("Ø Return %", f"{stats['overall_avg_return']:.2f}")
                         kpi_cols[2].metric("Hit Rate %", f"{stats['overall_hit_rate']:.1f}")
+                        if stats.get("overall_avg_r") is not None:
+                            kpi_cols[3].metric("Ø R", f"{stats['overall_avg_r']:.2f}")
 
                         if stats.get("per_type"):
                             st.markdown("---")
@@ -1027,13 +1029,15 @@ def main():
                 df_show["entry_time"] = df_show["entry_time"].dt.strftime("%Y-%m-%d %H:%M")
                 df_show["exit_time"] = df_show["exit_time"].dt.strftime("%Y-%m-%d %H:%M")
                 df_show["ret_pct"] = df_show["ret_pct"].map(lambda x: f"{x:.2f}")
+                if "r_multiple" in df_show.columns:
+                    df_show["r_multiple"] = df_show["r_multiple"].map(lambda x: f"{x:.2f}")
                 if "hold_bars" in df_show.columns:
                     df_show["hold_bars"] = df_show["hold_bars"].astype(int)
                 if "hold_time" in df_show.columns:
                     df_show["hold_time"] = df_show["hold_time"].astype(str)
                 df_show["correct"] = df_show["correct"].map(lambda x: "✅" if x else "❌")
 
-                df_show = df_show.rename(columns={"ret_pct": "Return %", "hold_bars": "Hold Bars", "hold_time": "Hold Time"})
+                df_show = df_show.rename(columns={"ret_pct": "Return %", "hold_bars": "Hold Bars", "hold_time": "Hold Time", "r_multiple": "R"})
 
                 cols = [
                     "entry_time",
@@ -1046,6 +1050,7 @@ def main():
                     "Return %",
                     "Hold Bars",
                     "Hold Time",
+                    "R",
                     "correct",
                 ]
                 df_show = df_show[[c for c in cols if c in df_show.columns]]
