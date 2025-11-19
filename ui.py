@@ -7,6 +7,11 @@ from datetime import datetime
 from html import escape  # für sichere Tooltips d
 import plotly.graph_objects as go
 
+try:
+    import yfinance as yf
+except ImportError:
+    yf = None
+
 # KI-CoPilot Module
 from ai.copilot import ask_copilot
 from ai.patterns import detect_patterns
@@ -62,6 +67,45 @@ PATTERN_LOOKBACK = 400
 # Wie viele Jahre Historie sollen ungefähr geladen werden?
 YEARS_HISTORY = 3.0
 
+# Erweiterte Markt-Definitionen (Crypto + Stocks)
+MARKETS = {
+    "Crypto": {
+        "label": "Bitfinex Spot",
+        "source": "bitfinex",
+        "symbols": {
+            "BTC": "tBTCUSD",
+            "ETH": "tETHUSD",
+            "XRP": "tXRPUSD",
+            "SOL": "tSOLUSD",
+            "DOGE": "tDOGE:USD",
+        },
+        "timeframes": {
+            "1m": "1m",
+            "5m": "5m",
+            "15m": "15m",
+            "1h": "1h",
+            "4h": "4h",
+            "1d": "1D",
+        },
+        "default_timeframe": "1d",
+    },
+    "Stocks": {
+        "label": "Yahoo Finance",
+        "source": "yfinance",
+        "symbols": {
+            "NASDAQ": "^IXIC",
+            "QQQ": "QQQ",
+        },
+        "timeframes": {
+            "1d": "1d",
+            "1h": "1h",
+        },
+        "default_timeframe": "1d",
+    },
+}
+
+DEFAULT_MARKET = "Crypto"
+
 
 def candles_for_history(interval_internal: str, years: float = YEARS_HISTORY) -> int:
     """Rechnet ungefähr aus, wie viele Kerzen für X Jahre gebraucht werden."""
@@ -72,6 +116,7 @@ def candles_for_history(interval_internal: str, years: float = YEARS_HISTORY) ->
         "1h": 24,        # 24
         "4h": 6,         # 6
         "1D": 1,         # 1
+        "1d": 1,         # 1 (Stocks via Yahoo)
     }
     candles_per_day = candles_per_day_map.get(interval_internal, 24)
     # Bitfinex akzeptiert pro Request max ~10k Kerzen – clampen, um 500er zu vermeiden.
@@ -221,6 +266,43 @@ def fetch_ticker_24h(symbol: str):
     last_price = float(d[6])
     change_pct = float(d[5]) * 100.0
     return last_price, change_pct
+
+
+def fetch_yf_ohlc(symbol: str, interval: str, years: float = YEARS_HISTORY) -> pd.DataFrame:
+    if yf is None:
+        raise RuntimeError("yfinance nicht installiert – bitte `pip install yfinance` ausführen.")
+
+    intraday = interval.lower() in {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
+    if intraday:
+        period = "60d"  # YF-Restriktion: Intraday max. ~60 Tage
+    else:
+        days = max(int(years * 365), 1)
+        period = "max" if days >= 3650 else f"{days}d"
+
+    df = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False)
+    if df.empty:
+        return pd.DataFrame()
+
+    df = df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
+    df.index = pd.to_datetime(df.index).tz_localize(None)
+    df.sort_index(inplace=True)
+    return df[["open", "high", "low", "close", "volume"]]
+
+
+@st.cache_data(ttl=300)
+def cached_fetch_yf(symbol: str, interval: str, years: float = YEARS_HISTORY):
+    return fetch_yf_ohlc(symbol, interval, years=years)
+
+
+def fetch_market_ohlc(symbol: str, interval: str, market: str, limit: int = None) -> pd.DataFrame:
+    """
+    Abstraktion für Krypto (Bitfinex) und Aktien/Indizes (Yahoo Finance).
+    Limit wird nur für Bitfinex genutzt.
+    """
+    if market == "Stocks":
+        return cached_fetch_yf(symbol, interval, years=YEARS_HISTORY)
+    effective_limit = limit or candles_for_history(interval, years=YEARS_HISTORY)
+    return cached_fetch_klines(symbol, interval, limit=effective_limit)
 
 
 # ---------------------------------------------------------
@@ -486,8 +568,11 @@ def signal_color(signal: str) -> str:
 # SESSION STATE INITIALISIERUNG
 # ---------------------------------------------------------
 def init_state():
-    st.session_state.setdefault("selected_symbol", "BTC")
-    st.session_state.setdefault("selected_timeframe", DEFAULT_TIMEFRAME)
+    st.session_state.setdefault("market", DEFAULT_MARKET)
+    if "selected_symbol" not in st.session_state:
+        st.session_state.selected_symbol = list(MARKETS[DEFAULT_MARKET]["symbols"].keys())[0]
+    if "selected_timeframe" not in st.session_state:
+        st.session_state.selected_timeframe = MARKETS[DEFAULT_MARKET]["default_timeframe"]
     st.session_state.setdefault("theme", "Dark")
     st.session_state.setdefault("backtest_trades", pd.DataFrame())
     st.session_state.setdefault("copilot_question", "")
@@ -513,17 +598,39 @@ def main():
 
     # 1) Markt
     st.sidebar.markdown("### Markt")
+    market_names = list(MARKETS.keys())
+    market = st.sidebar.radio(
+        "Markt",
+        market_names,
+        index=market_names.index(st.session_state.market) if st.session_state.market in market_names else 0,
+    )
+    if market != st.session_state.market:
+        st.session_state.market = market
+        st.session_state.selected_symbol = list(MARKETS[market]["symbols"].keys())[0]
+        st.session_state.selected_timeframe = MARKETS[market]["default_timeframe"]
+
+    symbols_map = MARKETS[market]["symbols"]
+    timeframes_map = MARKETS[market]["timeframes"]
+
+    symbol_options = list(symbols_map.keys())
+    if st.session_state.selected_symbol not in symbol_options:
+        st.session_state.selected_symbol = symbol_options[0]
+
     symbol_label = st.sidebar.selectbox(
         "Aktives Symbol",
-        list(SYMBOLS.keys()),
-        index=list(SYMBOLS.keys()).index(st.session_state.selected_symbol),
+        symbol_options,
+        index=symbol_options.index(st.session_state.selected_symbol),
     )
     st.session_state.selected_symbol = symbol_label
 
+    tf_options = list(timeframes_map.keys())
+    if st.session_state.selected_timeframe not in tf_options:
+        st.session_state.selected_timeframe = MARKETS[market]["default_timeframe"]
+
     tf_label = st.sidebar.radio(
         "Timeframe",
-        list(TIMEFRAMES.keys()),
-        index=list(TIMEFRAMES.keys()).index(st.session_state.selected_timeframe),
+        tf_options,
+        index=tf_options.index(st.session_state.selected_timeframe),
     )
     st.session_state.selected_timeframe = tf_label
 
@@ -572,7 +679,7 @@ def main():
                     </span>
                 </div>
                 <div style="text-align:right; font-size:0.85rem; opacity:0.85;">
-                    Datenquelle: Bitfinex Spot<br/>
+                    Datenquelle: {MARKETS[market]["label"]}<br/>
                     Update: {now}
                 </div>
             </div>
@@ -582,8 +689,8 @@ def main():
     )
 
     # Gemeinsame Basis-Variablen
-    symbol = SYMBOLS[symbol_label]
-    interval_internal = TIMEFRAMES[tf_label]
+    symbol = symbols_map[symbol_label]
+    interval_internal = timeframes_map[tf_label]
 
     # Layout: Hauptbereich (Watchlist + Charts + Backtest) und rechts Copilot
     col_main, col_right = st.columns([4.2, 1.8], gap="medium")
@@ -601,34 +708,35 @@ def main():
             selected_tf_internal = interval_internal
             limit_watch = candles_for_history(selected_tf_internal, years=YEARS_HISTORY)
 
-            for label, sym in SYMBOLS.items():
-                try:
-                    price, chg_pct = fetch_ticker_24h(sym)
-                    try:
-                        df_tmp = cached_fetch_klines(sym, selected_tf_internal, limit=limit_watch)
-                        df_tmp = compute_indicators(df_tmp)
-                        df_tmp = compute_signals_ext(df_tmp)
-                        sig = latest_signal_ext(df_tmp)
-                    except Exception:
-                        sig = "NO DATA"
+            for label, sym in symbols_map.items():
+                price = np.nan
+                chg_pct = np.nan
+                sig = "NO DATA"
 
-                    rows.append(
-                        {
-                            "Symbol": label,
-                            "Price": price,
-                            "Change %": chg_pct,
-                            "Signal": sig,
-                        }
-                    )
+                try:
+                    df_tmp = fetch_market_ohlc(sym, selected_tf_internal, market, limit=limit_watch)
+                    if df_tmp.empty:
+                        raise ValueError("Keine Daten")
+
+                    price = df_tmp["close"].iloc[-1]
+                    if len(df_tmp) >= 2:
+                        prev_close = df_tmp["close"].iloc[-2]
+                        chg_pct = ((price - prev_close) / prev_close) * 100 if prev_close else np.nan
+
+                    df_tmp = compute_indicators(df_tmp)
+                    df_tmp = compute_signals_ext(df_tmp)
+                    sig = latest_signal_ext(df_tmp)
                 except Exception:
-                    rows.append(
-                        {
-                            "Symbol": label,
-                            "Price": np.nan,
-                            "Change %": np.nan,
-                            "Signal": "NO DATA",
-                        }
-                    )
+                    pass
+
+                rows.append(
+                    {
+                        "Symbol": label,
+                        "Price": price,
+                        "Change %": chg_pct,
+                        "Signal": sig,
+                    }
+                )
 
             df_watch = pd.DataFrame(rows)
             if not df_watch.empty:
@@ -649,7 +757,7 @@ def main():
                 limit_main = candles_for_history(interval_internal, years=YEARS_HISTORY)
 
                 # komplette Historie laden
-                df_all = cached_fetch_klines(symbol, interval_internal, limit=limit_main)
+                df_all = fetch_market_ohlc(symbol, interval_internal, market, limit=limit_main)
 
                 date_from = None
                 date_to = None
@@ -692,7 +800,7 @@ def main():
                     df = pd.DataFrame()
 
                 # Kennzahlen / Stati
-                if df.empty:
+                if df.empty or len(df) < 2:
                     sig = "NO DATA"
                     last_price = 0
                     change_abs = 0
@@ -715,7 +823,7 @@ def main():
                     error_msg = ""
 
                     # E-Mail Push bei Signalwechsel (Gmail)
-                    prev_key = f"last_signal_{symbol_label}_{tf_label}"
+                    prev_key = f"last_signal_{market}_{symbol_label}_{tf_label}"
                     prev_sig = st.session_state.get(prev_key)
 
                     if prev_sig != sig and sig in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
@@ -789,7 +897,7 @@ def main():
 
             # Price-Chart mit optionalem Pattern-Overlay (Top-1)
             if not df.empty:
-                show_overlay = st.toggle("Pattern-Overlay anzeigen (Top 1)", value=False, key=f"overlay_{symbol_label}_{tf_label}")
+                show_overlay = st.toggle("Pattern-Overlay anzeigen (Top 1)", value=False, key=f"overlay_{market}_{symbol_label}_{tf_label}")
                 df_pat = df.tail(PATTERN_LOOKBACK) if len(df) > PATTERN_LOOKBACK else df
                 pat_overlay = detect_patterns(df_pat) if show_overlay else []
 
@@ -816,7 +924,7 @@ def main():
                             "Pattern auswählen (Top-Scores)",
                             list(options.keys()),
                             index=0,
-                            key=f"pattern_select_{symbol_label}_{tf_label}",
+                            key=f"pattern_select_{market}_{symbol_label}_{tf_label}",
                         )
                         top = options[sel_label]
                         line_color = "#000000"
@@ -985,7 +1093,7 @@ def main():
                 return
 
             # Key für Auto-Analyse im Session-State (pro Symbol + Timeframe)
-            auto_key = f"copilot_auto_{symbol_label}_{tf_label}"
+            auto_key = f"copilot_auto_{market}_{symbol_label}_{tf_label}"
 
             def run_auto_analysis():
                 """Startet eine automatische CoPilot-Analyse und speichert das Ergebnis im Session State."""
@@ -1025,7 +1133,7 @@ def main():
                 with c2:
                     if st.button(
                         "🔄 Neu laden",
-                        key=f"btn_reanalyse_{symbol_label}_{tf_label}",
+                        key=f"btn_reanalyse_{market}_{symbol_label}_{tf_label}",
                     ):
                         run_auto_analysis()
 
@@ -1045,7 +1153,7 @@ def main():
                 )
                 st.session_state.copilot_question = question
 
-                if st.button("Antwort holen", key=f"btn_copilot_chat_{symbol_label}_{tf_label}"):
+                if st.button("Antwort holen", key=f"btn_copilot_chat_{market}_{symbol_label}_{tf_label}"):
                     if not question.strip():
                         st.warning("Bitte zuerst eine Frage eingeben.")
                     else:

@@ -11,6 +11,11 @@ pip install -r requirements.txt
 streamlit run ui.py
 ```
 
+## Märkte
+
+- Crypto (Bitfinex, Standard)
+- Stocks (z.B. NASDAQ/QQQ via Yahoo Finance – `yfinance` steht in `requirements.txt`)
+
 ## KI-CoPilot (Groq)
 
 Der CoPilot verwendet die Groq-API (z.B. Modell `llama-3.3-70b-versatile`).
