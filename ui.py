@@ -939,12 +939,15 @@ def main():
                             i1o = int(i1) + offset
                             x0 = df.index[i0o] if i0o < len(df.index) else df.index[-1]
                             x1 = df.index[i1o] if i1o < len(df.index) else df.index[-1]
-                            # verlängern um 15% der Strecke nach rechts
-                            # Profi-Style: Trendlinie noch ein Stück weiterziehen (breitere Projektion)
+                            # Profi-Style: Trendlinie entlang der Steigung verlängern (kein horizontaler Flat-Extend)
                             extend = max(3, int((i1o - i0o) * 0.5))
-                            x_ext = df.index[min(len(df.index) - 1, i1o + extend)]
+                            ext_idx = min(len(df.index) - 1, i1o + extend)
+                            delta_idx = max(i1o - i0o, 1e-9)
+                            slope = (y1 - y0) / delta_idx
+                            y_ext = y1 + slope * (ext_idx - i1o)
+                            x_ext = df.index[ext_idx]
                             fig.add_shape(type="line", x0=x0, y0=y0, x1=x1, y1=y1, xref="x", yref="y", line=dict(color=line_color, width=2))
-                            fig.add_shape(type="line", x0=x1, y0=y1, x1=x_ext, y1=y1, xref="x", yref="y", line=dict(color=line_color, width=1, dash="dot"))
+                            fig.add_shape(type="line", x0=x1, y0=y1, x1=x_ext, y1=y_ext, xref="x", yref="y", line=dict(color=line_color, width=1, dash="dot"))
                         fig.add_annotation(
                             x=df_pat.index[min(len(df_pat) - 1, int(top.overlay_lines[0][0]))] if top.overlay_lines else df_pat.index[-1],
                             y=top.overlay_lines[0][1] if top.overlay_lines else df_pat["close"].iloc[-1],
