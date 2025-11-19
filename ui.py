@@ -279,7 +279,15 @@ def fetch_yf_ohlc(symbol: str, interval: str, years: float = YEARS_HISTORY) -> p
         days = max(int(years * 365), 1)
         period = "max" if days >= 3650 else f"{days}d"
 
-    df = yf.download(symbol, period=period, interval=interval, auto_adjust=False, progress=False)
+    df = yf.download(
+        symbol,
+        period=period,
+        interval=interval,
+        auto_adjust=False,
+        progress=False,
+        group_by="column",
+        threads=False,
+    )
     if df.empty:
         return pd.DataFrame()
 
@@ -299,10 +307,19 @@ def fetch_yf_ohlc(symbol: str, interval: str, years: float = YEARS_HISTORY) -> p
 
     # sicherstellen, dass nur die benötigten Spalten vorhanden sind
     required_cols = ["open", "high", "low", "close", "volume"]
-    for col in required_cols:
-        if col not in df.columns:
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing and {"open", "close"}.issubset(df.columns):
+        # falls Volume fehlt etc., ergänzen wir.
+        for col in missing:
             df[col] = np.nan
-    df = df[required_cols]
+    try:
+        df = df[required_cols]
+    except KeyError:
+        # harte Fallbacks: nehme nur die verfügbaren OHLC-Spalten
+        avail = [c for c in required_cols if c in df.columns]
+        if not avail:
+            return pd.DataFrame()
+        df = df[avail]
 
     df.index = pd.to_datetime(df.index).tz_localize(None)
     df.sort_index(inplace=True)
@@ -311,7 +328,7 @@ def fetch_yf_ohlc(symbol: str, interval: str, years: float = YEARS_HISTORY) -> p
 
 
 @st.cache_data(ttl=300)
-def cached_fetch_yf(symbol: str, interval: str, years: float = YEARS_HISTORY):
+def cached_fetch_yf(symbol: str, interval: str, years: float = YEARS_HISTORY, cache_tag: str = "v2"):
     return fetch_yf_ohlc(symbol, interval, years=years)
 
 
