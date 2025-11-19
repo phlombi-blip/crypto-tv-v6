@@ -101,7 +101,7 @@ def _compress_df_for_llm(
     df: pd.DataFrame,
     timeframe: str,
     max_override: Optional[int] = None,
-    max_chars: int = 2000,
+    max_chars: int = 1200,
 ) -> str:
     """
     Reduziert den Chart auf ein kompaktes Text-Preview für den Prompt.
@@ -116,12 +116,12 @@ def _compress_df_for_llm(
 
     # Dynamische Lookbacks pro Timeframe
     lookbacks = {
-        "1m": 300,   # ca. ein paar Stunden
-        "5m": 300,   # ca. ein Tag
-        "15m": 300,  # 2–3 Tage
-        "1h": 300,   # ca. 12–13 Tage
-        "4h": 250,   # ca. 6–7 Wochen
-        "1d": 250,   # ca. 8 Monate
+        "1m": 200,   # leicht kürzer: ein paar Stunden
+        "5m": 200,   # ca. ein Tag
+        "15m": 200,  # 2 Tage
+        "1h": 150,   # ca. 8–9 Tage
+        "4h": 150,   # ca. 4–5 Wochen
+        "1d": 150,   # ca. 5 Monate
     }
 
     max_rows = max_override if max_override is not None else lookbacks.get(timeframe, 250)
@@ -244,12 +244,15 @@ def ask_copilot(
     # Chartmuster-Analyse (technische Heuristiken)
     patterns = detect_patterns(df)
     if patterns:
+        top = patterns[:1]  # nur das beste Muster, um Tokens zu sparen
         pattern_text = "\n".join(
             [
                 f"- {p.name} (Score {p.score}/100, {p.direction}): {p.rationale}; Ausblick: {p.projection}"
-                for p in patterns
+                for p in top
             ]
         )
+        if len(pattern_text) > 300:
+            pattern_text = pattern_text[:280].rstrip() + " …"
     else:
         pattern_text = "Keine klaren Muster gefunden."
 
@@ -346,7 +349,7 @@ def ask_copilot(
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.4,
-            max_completion_tokens=1200,
+            max_completion_tokens=800,
         )
 
         content = response.choices[0].message.content or ""
@@ -371,6 +374,11 @@ def ask_copilot(
     except Exception as e:
         msg = str(e).strip()
         lower_msg = msg.lower()
+
+        if "rate limit" in lower_msg or "tokens per minute" in lower_msg or "tokens per day" in lower_msg:
+            return (
+                "❌ KI Fehler (Groq): Rate-Limit erreicht. Bitte warte ein paar Minuten oder reduziere die Eingabe."
+            )
 
         # 🔴 HTML-Fehlerseiten von Groq/Cloudflare sicher abfangen
         if _looks_like_html_error(lower_msg):
