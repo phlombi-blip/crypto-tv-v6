@@ -56,12 +56,8 @@ def _signal_core_with_reason(last, prev):
             "Trend-Dip: Über MA200, EMA20>EMA50; Pullback zur Value-Zone (EMA20/EMA50) mit RSI-Rebound.",
         )
 
-    # Breakout
-    window = 20
-    if "high" in last.index:
-        swing_high = float(pd.Series(last).name)  # placeholder to avoid errors
-    recent_high = max(prev["high"], last["high"])
-    swing_high = recent_high
+    # Breakout (vereinfacht: neues Hoch gegen Vorperiode)
+    swing_high = max(prev["high"], last["high"])
     breakout_price = (close > swing_high) and (close > ema20)
     breakout_rsi = (50 <= rsi_now <= 62) and (rsi_now >= rsi_prev)
     breakout_vol = (pd.isna(rvol) or rvol >= 1.2)
