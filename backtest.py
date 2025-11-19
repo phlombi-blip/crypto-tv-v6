@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.DataFrame:
+def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40, tp_mult: float = 1.2, atr_mult: float = 2.0) -> pd.DataFrame:
     """
     Long-only Logik: Einstieg bei BUY/STRONG BUY, Ausstieg beim nächsten SELL/STRONG SELL
     (oder bei der letzten Kerze, falls kein Gegensignal mehr kommt).
@@ -12,6 +12,8 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
 
     rows = []
     closes = df["close"].values
+    highs = df["high"].values if "high" in df.columns else closes
+    lows = df["low"].values if "low" in df.columns else closes
     signals = df["signal"].values
     idx = df.index
     atrs = df["atr14"].values if "atr14" in df.columns else np.full(len(df), np.nan)
@@ -39,11 +41,21 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
         if in_pos and sig in ["SELL", "STRONG SELL"]:
             exit_price = price
             exit_idx = idx[i]
-            ret_pct = (exit_price - entry_price) / entry_price * 100
             hold_bars = i - entry_pos
             hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
-            risk_abs = (entry_atr * 2) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
-            r_multiple = (exit_price - entry_price) / risk_abs if risk_abs else np.nan
+            risk_abs = (entry_atr * atr_mult) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
+            tp_level = entry_price + risk_abs * tp_mult
+            # TP/Stop Simulation auf Close-Basis (vereinfachend)
+            hit_tp = any(closes[j] >= tp_level for j in range(entry_pos, i + 1))
+            ret_abs = exit_price - entry_price
+            if hit_tp:
+                # Hälfte bei TP, Rest beim finalen Exit
+                ret_final = 0.5 * (tp_level - entry_price) + 0.5 * (exit_price - entry_price)
+                ret_pct = ret_final / entry_price * 100
+                r_multiple = ret_final / risk_abs if risk_abs else np.nan
+            else:
+                ret_pct = ret_abs / entry_price * 100
+                r_multiple = ret_abs / risk_abs if risk_abs else np.nan
             rows.append({
                 "entry_time": entry_idx,
                 "exit_time": exit_idx,
@@ -64,11 +76,19 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
         if in_pos and max_hold_bars and (i - entry_pos) >= max_hold_bars:
             exit_price = price
             exit_idx = idx[i]
-            ret_pct = (exit_price - entry_price) / entry_price * 100
             hold_bars = i - entry_pos
             hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
-            risk_abs = (entry_atr * 2) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
-            r_multiple = (exit_price - entry_price) / risk_abs if risk_abs else np.nan
+            risk_abs = (entry_atr * atr_mult) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
+            tp_level = entry_price + risk_abs * tp_mult
+            hit_tp = any(closes[j] >= tp_level for j in range(entry_pos, i + 1))
+            ret_abs = exit_price - entry_price
+            if hit_tp:
+                ret_final = 0.5 * (tp_level - entry_price) + 0.5 * (exit_price - entry_price)
+                ret_pct = ret_final / entry_price * 100
+                r_multiple = ret_final / risk_abs if risk_abs else np.nan
+            else:
+                ret_pct = ret_abs / entry_price * 100
+                r_multiple = ret_abs / risk_abs if risk_abs else np.nan
             rows.append({
                 "entry_time": entry_idx,
                 "exit_time": exit_idx,
@@ -88,11 +108,19 @@ def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.Dat
     if in_pos:
         exit_price = closes[-1]
         exit_idx = idx[-1]
-        ret_pct = (exit_price - entry_price) / entry_price * 100
         hold_bars = len(df) - 1 - entry_pos
         hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
-        risk_abs = (entry_atr * 2) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
-        r_multiple = (exit_price - entry_price) / risk_abs if risk_abs else np.nan
+        risk_abs = (entry_atr * atr_mult) if entry_atr and not np.isnan(entry_atr) else entry_price * 0.02
+        tp_level = entry_price + risk_abs * tp_mult
+        hit_tp = any(closes[j] >= tp_level for j in range(entry_pos, len(df)))
+        ret_abs = exit_price - entry_price
+        if hit_tp:
+            ret_final = 0.5 * (tp_level - entry_price) + 0.5 * (exit_price - entry_price)
+            ret_pct = ret_final / entry_price * 100
+            r_multiple = ret_final / risk_abs if risk_abs else np.nan
+        else:
+            ret_pct = ret_abs / entry_price * 100
+            r_multiple = ret_abs / risk_abs if risk_abs else np.nan
         rows.append({
             "entry_time": entry_idx,
             "exit_time": exit_idx,

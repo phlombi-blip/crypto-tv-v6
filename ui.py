@@ -994,7 +994,7 @@ def main():
                         "1d": 60,    # ~60 Tage
                     }.get(tf_label, 60)
 
-                    bt = compute_backtest_trades(df, max_hold_bars=tf_stop)
+                    bt = compute_backtest_trades(df, max_hold_bars=tf_stop, tp_mult=1.2, atr_mult=2.0)
                     st.session_state.backtest_trades = bt
 
                     stats = summarize_backtest(bt)
@@ -1021,7 +1021,7 @@ def main():
         with st.container():
             st.markdown('<div class="tv-card">', unsafe_allow_html=True)
             st.markdown('<div class="tv-title">Trades List (Backtest)</div>', unsafe_allow_html=True)
-            st.caption("Return % = (Exit - Entry) / Entry * 100 · Hold Bars = Kerzen zwischen Entry/Exit")
+            st.caption("Return % = (Exit - Entry) / Entry * 100 · Hold Bars = Kerzen zwischen Entry/Exit · R basiert auf Stop=2×ATR oder 2% Fallback, TP1 bei 1.2R (50% Ausstieg)")
 
             bt = st.session_state.backtest_trades
 

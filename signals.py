@@ -47,8 +47,9 @@ def _signal_core_with_reason(last, prev):
     trend_ok = ema20 > ema50 > ma200
 
     # Trend-Dip
-    dip_zone = (close <= ema20 * 1.02) and (close >= ema50 * 0.98)
+    dip_zone = (close <= ema20 * 1.02) and (close >= ema50 * 0.99)
     dip_rsi = (40 <= rsi_now <= 56) and (rsi_now > rsi_prev)
+    dip_vol_ok = (pd.isna(rvol) or rvol >= 1.1)
     if trend_ok and dip_zone and dip_rsi:
         return (
             "BUY",
@@ -56,8 +57,12 @@ def _signal_core_with_reason(last, prev):
         )
 
     # Breakout
+    window = 20
+    if "high" in last.index:
+        swing_high = float(pd.Series(last).name)  # placeholder to avoid errors
     recent_high = max(prev["high"], last["high"])
-    breakout_price = (close > recent_high) and (close > ema20)
+    swing_high = recent_high
+    breakout_price = (close > swing_high) and (close > ema20)
     breakout_rsi = (50 <= rsi_now <= 62) and (rsi_now >= rsi_prev)
     breakout_vol = (pd.isna(rvol) or rvol >= 1.2)
     if trend_ok and breakout_price and breakout_rsi and breakout_vol:
