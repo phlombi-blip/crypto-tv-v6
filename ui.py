@@ -78,14 +78,14 @@ def candles_for_history(interval_internal: str, years: float = YEARS_HISTORY) ->
 # ---------------------------------------------------------
 DARK_CSS = """
 <style>
-body, .main { background-color: #0b1224; }
-.block-container { padding-top: 1.4rem; padding-bottom: 0.6rem; }
+body, .main { background-color: #0f172a; }
+.block-container { padding-top: 2.2rem; padding-bottom: 0.6rem; }
 .tv-card {
     background: #111827;
     border-radius: 0.9rem;
-    border: 1px solid #1f2937;
+    border: 1px solid #1e293b;
     padding: 0.85rem 1rem;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.28);
+    box-shadow: none;
 }
 .tv-title {
     font-weight: 700;
@@ -114,13 +114,13 @@ body, .main { background-color: #0b1224; }
 LIGHT_CSS = """
 <style>
 body, .main { background-color: #F5F6FB; }
-.block-container { padding-top: 1.4rem; padding-bottom: 0.6rem; }
+.block-container { padding-top: 2.2rem; padding-bottom: 0.6rem; }
 .tv-card {
     background: #FFFFFF;
     border-radius: 0.9rem;
     border: 1px solid #E5E7EB;
     padding: 0.85rem 1rem;
-    box-shadow: 0 10px 24px rgba(0,0,0,0.08);
+    box-shadow: none;
 }
 .tv-title {
     font-weight: 700;
