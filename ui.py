@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 from datetime import datetime
-from html import escape  # für sichere Tooltips
+from html import escape  # für sichere Tooltips d
 
 # KI-CoPilot Module
 from ai.copilot import ask_copilot
