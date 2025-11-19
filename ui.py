@@ -285,7 +285,15 @@ def fetch_yf_ohlc(symbol: str, interval: str, years: float = YEARS_HISTORY) -> p
 
     # yfinance liefert bei Einzel-Ticker teils MultiIndex (Level 0 = Field, Level 1 = Ticker)
     if isinstance(df.columns, pd.MultiIndex):
+        if symbol in df.columns.get_level_values(1):
+            df = df.xs(symbol, axis=1, level=1)
+        else:
+            df.columns = df.columns.get_level_values(0)
+    if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
+
+    # doppelte Spaltennamen entfernen (falls YF mehrere Varianten liefert)
+    df = df.loc[:, ~df.columns.duplicated()]
 
     df = df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
 
