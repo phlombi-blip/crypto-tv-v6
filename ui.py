@@ -79,13 +79,13 @@ def candles_for_history(interval_internal: str, years: float = YEARS_HISTORY) ->
 DARK_CSS = """
 <style>
 body, .main { background-color: #0f172a; }
-.block-container { padding-top: 2.2rem; padding-bottom: 0.6rem; }
+.block-container { padding-top: 2.8rem; padding-bottom: 0.6rem; }
 .tv-card {
-    background: #111827;
+    background: #0f172a;
     border-radius: 0.9rem;
     border: 1px solid #1e293b;
     padding: 0.85rem 1rem;
-    box-shadow: none;
+    box-shadow: none !important;
 }
 .tv-title {
     font-weight: 700;
@@ -114,13 +114,13 @@ body, .main { background-color: #0f172a; }
 LIGHT_CSS = """
 <style>
 body, .main { background-color: #F5F6FB; }
-.block-container { padding-top: 2.2rem; padding-bottom: 0.6rem; }
+.block-container { padding-top: 2.8rem; padding-bottom: 0.6rem; }
 .tv-card {
     background: #FFFFFF;
     border-radius: 0.9rem;
     border: 1px solid #E5E7EB;
     padding: 0.85rem 1rem;
-    box-shadow: none;
+    box-shadow: none !important;
 }
 .tv-title {
     font-weight: 700;
@@ -342,38 +342,37 @@ def _signal_core_with_reason(last, prev):
         return "HOLD", "MA200 nicht verfügbar – kein Regime."
     if close < ma200:
         return "HOLD", "Unter MA200 – kein Long-Regime."
-    if pd.notna(adx) and adx < 18:
-        return "HOLD", "Trend zu schwach (ADX < 18)."
-    if pd.notna(rvol) and rvol < 0.8:
-        return "HOLD", "Volumen zu dünn (RVOL < 0.8)."
-    if pd.notna(atr_pct) and atr_pct > 10:
-        return "HOLD", "Volatilität zu hoch (>10% ATR/Close)."
+    if pd.notna(adx) and adx < 20:
+        return "HOLD", "Trend zu schwach (ADX < 20)."
+    if pd.notna(rvol) and rvol < 0.9:
+        return "HOLD", "Volumen zu dünn (RVOL < 0.9)."
+    if pd.notna(atr_pct) and atr_pct > 9:
+        return "HOLD", "Volatilität zu hoch (>9% ATR/Close)."
 
-    # Marktstruktur grob
-    hh_hl_flag = 1 if (ema20 > ema50 > ma200) else 0
+    trend_ok = ema20 > ema50 > ma200
 
     # Setup 1: Trend-Dip (Value-Zone + Rebound)
-    dip_zone = (close <= bb_mid) or (close <= ema50 * 1.01)
-    dip_rsi = (35 <= rsi_now <= 55) and (rsi_now > rsi_prev)
-    trend_ok = ema20 > ema50 > ma200
+    dip_zone = (close <= ema20 * 1.025) and (close >= ema50 * 0.95)
+    dip_rsi = (38 <= rsi_now <= 56) and (rsi_now > rsi_prev)
     if trend_ok and dip_zone and dip_rsi:
         return (
             "BUY",
-            "Trend-Dip: Über MA200, EMA20>EMA50; Pullback zur Value-Zone (BB-Mid/EMA50) mit RSI-Rebound."
+            "Trend-Dip: Über MA200, EMA20>EMA50; Pullback zur Value-Zone (EMA20/EMA50) mit RSI-Rebound."
         )
 
     # Setup 2: Breakout (Fortsetzung)
-    breakout_price = (close > bb_mid) and (close > prev_close) and (close > ema20)
+    recent_high = max(prev["high"], last["high"])
+    breakout_price = (close > recent_high) and (close > ema20)
     breakout_rsi = (50 <= rsi_now <= 65) and (rsi_now >= rsi_prev)
-    breakout_vol = (pd.isna(rvol) or rvol >= 1.0)
+    breakout_vol = (pd.isna(rvol) or rvol >= 1.05)
     if trend_ok and breakout_price and breakout_rsi and breakout_vol:
         return (
             "BUY",
-            "Trend-Breakout: Über MA200/EMA20/EMA50, Close über BB-Mid mit steigendem RSI; Volumen okay."
+            "Trend-Breakout: Über MA200/EMA20/EMA50 mit neuem Hoch, RSI 50–65 steigend und Volumen-Expansion."
         )
 
     # Setup 3: Reclaim nach Flush
-    reclaim = (prev_close < ema50) and (close > ema50) and (rsi_now > rsi_prev)
+    reclaim = (prev_close < ema50) and (close > ema50) and (rsi_now > rsi_prev) and (rsi_now >= 46)
     if trend_ok and reclaim:
         return (
             "BUY",
@@ -463,10 +462,10 @@ def latest_signal(df: pd.DataFrame) -> str:
     return valid["signal"].iloc[-1] if not valid.empty else "NO DATA"
 
 
-def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
+def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.DataFrame:
     """
-    Long-only: Einstieg bei BUY/STRONG BUY, Ausstieg beim nächsten SELL/STRONG SELL
-    (oder bei der letzten Kerze, falls kein Gegensignal mehr kommt).
+    Long-only: Einstieg bei BUY/STRONG BUY, Ausstieg beim nächsten SELL/STRONG SELL,
+    Time-Stop nach max_hold_bars oder letzte Kerze.
     """
     if df.empty or "signal" not in df.columns or "close" not in df.columns:
         return pd.DataFrame()
@@ -508,6 +507,31 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
                     "exit_time": exit_idx,
                     "signal": entry_sig,
                     "exit_signal": sig,
+                    "reason": entry_reason,
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "ret_pct": float(ret_pct),
+                    "correct": bool(ret_pct > 0),
+                    "hold_bars": hold_bars,
+                    "hold_time": hold_time,
+                }
+            )
+            in_pos = False
+            continue
+
+        # Time-Stop
+        if in_pos and max_hold_bars and (i - entry_pos) >= max_hold_bars:
+            exit_price = price
+            exit_idx = idx[i]
+            ret_pct = (exit_price - entry_price) / entry_price * 100
+            hold_bars = i - entry_pos
+            hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
+            rows.append(
+                {
+                    "entry_time": entry_idx,
+                    "exit_time": exit_idx,
+                    "signal": entry_sig,
+                    "exit_signal": "TIME_STOP",
                     "reason": entry_reason,
                     "entry_price": entry_price,
                     "exit_price": exit_price,
@@ -893,6 +917,21 @@ def main():
             if not df.empty:
                 fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
                 st.plotly_chart(fig_price_rsi, use_container_width=True)
+                # Muster-Panel direkt unter dem Chart
+                pat = detect_patterns(df)
+                with st.container():
+                    st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+                    st.markdown('<div class="tv-title">Chartmuster</div>', unsafe_allow_html=True)
+                    if not pat:
+                        st.info("Keine klaren Muster erkannt.")
+                    else:
+                        for p in pat:
+                            st.markdown(
+                                f"**{p.name}** — Score {p.score}/100 ({p.direction})  \n"
+                                f"{p.rationale}  \n"
+                                f"**Ausblick:** {p.projection}"
+                            )
+                    st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.warning("Keine Daten im gewählten Zeitraum – Zeitraum anpassen oder API/Internet prüfen.")
 
@@ -934,7 +973,17 @@ def main():
                 else:
                     st.caption("Long-only: Buy/Strong Buy halten bis Sell/Strong Sell oder letzte Kerze.")
 
-                    bt = compute_backtest_trades(df)
+                    # Time-Stop je nach Timeframe (Bars)
+                    tf_stop = {
+                        "1m": 720,   # 12h
+                        "5m": 288,   # 1 Tag
+                        "15m": 192,  # ~2 Tage
+                        "1h": 96,    # ~4 Tage
+                        "4h": 60,    # ~10 Tage
+                        "1d": 60,    # ~60 Tage
+                    }.get(tf_label, 60)
+
+                    bt = compute_backtest_trades(df, max_hold_bars=tf_stop)
                     st.session_state.backtest_trades = bt
 
                     stats = summarize_backtest(bt)
@@ -1047,8 +1096,9 @@ def main():
 
             auto_text = st.session_state.get(auto_key, "Noch keine Analyse verfügbar.")
 
-            # Tabs: links Auto-Analyse (CoPilot), rechts Chat
-            tab_auto, tab_chat = st.tabs(["📊 Auto-Analyse (CoPilot)", "💬 KI-Chat"])
+            # Tabs: Auto-Analyse (CoPilot), KI-Chat, lokale Chartmuster
+            patterns_local = detect_patterns(df) if not df.empty else []
+            tab_auto, tab_chat, tab_patterns = st.tabs(["📊 Auto-Analyse (CoPilot)", "💬 KI-Chat", "📐 Chart Pattern"])
 
             # --- TAB 1: Auto-Analyse / Insights (nur CoPilot) ---
             with tab_auto:
@@ -1092,6 +1142,19 @@ def main():
                             )
                         st.markdown("**Antwort:**")
                         st.write(answer)
+
+            # --- TAB 3: Lokale Chartmuster (ohne KI) ---
+            with tab_patterns:
+                st.markdown("**Erkannte Chartmuster (heuristisch, lokal)**")
+                if not patterns_local:
+                    st.info("Keine klaren Muster erkannt.")
+                else:
+                    for p in patterns_local:
+                        st.markdown(
+                            f"**{p.name}** — Score {p.score}/100 ({p.direction})  \n"
+                            f"{p.rationale}  \n"
+                            f"**Ausblick:** {p.projection}"
+                        )
 
             st.markdown("</div>", unsafe_allow_html=True)
 

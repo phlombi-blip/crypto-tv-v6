@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
+def compute_backtest_trades(df: pd.DataFrame, max_hold_bars: int = 40) -> pd.DataFrame:
     """
     Long-only Logik: Einstieg bei BUY/STRONG BUY, Ausstieg beim nächsten SELL/STRONG SELL
     (oder bei der letzten Kerze, falls kein Gegensignal mehr kommt).
@@ -32,6 +32,7 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
             in_pos = True
             continue
 
+        # Exit durch Gegensignal
         if in_pos and sig in ["SELL", "STRONG SELL"]:
             exit_price = price
             exit_idx = idx[i]
@@ -43,6 +44,28 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
                 "exit_time": exit_idx,
                 "signal": entry_sig,
                 "exit_signal": sig,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "ret_pct": ret_pct,
+                "correct": ret_pct > 0,
+                "hold_bars": hold_bars,
+                "hold_time": hold_time,
+            })
+            in_pos = False
+            continue
+
+        # Time-Stop (max_hold_bars)
+        if in_pos and max_hold_bars and (i - entry_pos) >= max_hold_bars:
+            exit_price = price
+            exit_idx = idx[i]
+            ret_pct = (exit_price - entry_price) / entry_price * 100
+            hold_bars = i - entry_pos
+            hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
+            rows.append({
+                "entry_time": entry_idx,
+                "exit_time": exit_idx,
+                "signal": entry_sig,
+                "exit_signal": "TIME_STOP",
                 "entry_price": entry_price,
                 "exit_price": exit_price,
                 "ret_pct": ret_pct,

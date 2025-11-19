@@ -39,6 +39,8 @@ def detect_patterns(df: pd.DataFrame) -> List[PatternHit]:
         return []
 
     closes = df["close"].reset_index(drop=True)
+    highs_series = df["high"].reset_index(drop=True) if "high" in df.columns else closes
+    lows_series = df["low"].reset_index(drop=True) if "low" in df.columns else closes
     highs, lows = _swing_points(closes, window=3)
     hits: List[PatternHit] = []
 
@@ -166,6 +168,76 @@ def detect_patterns(df: pd.DataFrame) -> List[PatternHit]:
                     direction="bullish",
                     rationale="fallende Hochs/Tiefs, untere Trendlinie flacher",
                     projection="Ausbruch nach oben wahrscheinlicher",
+                )
+            )
+
+    # Symmetrisches Dreieck (zusammenlaufende Hochs/Tiefs)
+    if len(highs) >= 3 and len(lows) >= 3:
+        h1, h3 = highs[-3], highs[-1]
+        l1, l3 = lows[-3], lows[-1]
+        h_slope = (highs_series[h3] - highs_series[h1]) / (h3 - h1 + 1)
+        l_slope = (lows_series[l3] - lows_series[l1]) / (l3 - l1 + 1)
+        if h_slope < 0 and l_slope > 0:
+            score = 60
+            hits.append(
+                PatternHit(
+                    name="Symmetric Triangle",
+                    score=score,
+                    direction="neutral",
+                    rationale="zusammenlaufende Hoch- und Tiefpunkte",
+                    projection="Breakout in Trendrichtung wahrscheinlich; Volumen-Bestätigung abwarten",
+                )
+            )
+
+    # Head & Shoulders (vereinfachtes 3-Peak-Muster)
+    if len(highs) >= 3:
+        h1, h2, h3 = highs[-3], highs[-2], highs[-1]
+        p1, p2, p3 = highs_series[h1], highs_series[h2], highs_series[h3]
+        neck = min(closes[min(h1, h2, h3):max(h1, h2, h3)])
+        if p2 > p1 * 1.02 and p2 > p3 * 1.02 and abs(p1 - p3) / ((p1 + p3) / 2) < 0.03:
+            broke_neck = closes.iloc[-1] < neck
+            score = 70 + (10 if broke_neck else 0)
+            hits.append(
+                PatternHit(
+                    name="Head and Shoulders",
+                    score=min(score, 90),
+                    direction="bearish",
+                    rationale="mittleres Hoch deutlich höher, Schultern ähnlich",
+                    projection="Abwärtsfortsetzung bevorzugt nach Nackenbruch",
+                )
+            )
+
+    # Inverse Head & Shoulders
+    if len(lows) >= 3:
+        l1, l2, l3 = lows[-3], lows[-2], lows[-1]
+        p1, p2, p3 = lows_series[l1], lows_series[l2], lows_series[l3]
+        neck = max(closes[min(l1, l2, l3):max(l1, l2, l3)])
+        if p2 < p1 * 0.98 and p2 < p3 * 0.98 and abs(p1 - p3) / ((p1 + p3) / 2) < 0.03:
+            broke_neck = closes.iloc[-1] > neck
+            score = 70 + (10 if broke_neck else 0)
+            hits.append(
+                PatternHit(
+                    name="Inverse Head and Shoulders",
+                    score=min(score, 90),
+                    direction="bullish",
+                    rationale="mittleres Tief deutlich tiefer, Schultern ähnlich",
+                    projection="Aufwärtsfortsetzung bevorzugt nach Nackenbruch",
+                )
+            )
+
+    # Rechteck / Range
+    if len(df) >= 40:
+        recent = closes.tail(30)
+        rng = recent.max() - recent.min()
+        mid = recent.mean()
+        if rng / mid < 0.06:
+            hits.append(
+                PatternHit(
+                    name="Rectangle Range",
+                    score=55,
+                    direction="neutral",
+                    rationale="Seitwärtsrange mit enger Schwankung",
+                    projection="Breakout über Range-Hoch bullisch, unter Range-Tief bärisch",
                 )
             )
 
