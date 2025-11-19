@@ -811,14 +811,15 @@ def main():
                     )
                     if pat_overlay:
                         options = {f"{p.name} ({p.score}/100, {p.direction})": p for p in pat_overlay}
-                        sel_label = st.selectbox(
+                        csel, _ = st.columns([2, 5])
+                        sel_label = csel.selectbox(
                             "Pattern auswählen (Top-Scores)",
                             list(options.keys()),
                             index=0,
                             key=f"pattern_select_{symbol_label}_{tf_label}",
                         )
                         top = options[sel_label]
-                        line_color = "#ffffff"
+                        line_color = "#000000"
                         offset = len(df) - len(df_pat)
                         for (i0, y0, i1, y1) in top.overlay_lines:
                             i0o = int(i0) + offset
