@@ -89,6 +89,7 @@ body, .main {
     border-radius: 0.75rem;
     border: 1px solid #1f2933;
     padding: 0.75rem 1rem;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
 }
 .tv-title {
     font-weight: 600;
@@ -102,6 +103,11 @@ body, .main {
     border-radius: 999px;
     font-weight: 600;
     display: inline-block;
+}
+.stButton>button {
+    border-radius: 0.5rem;
+    padding: 0.45rem 0.8rem;
+    font-weight: 600;
 }
 </style>
 """
@@ -120,6 +126,7 @@ body, .main {
     border-radius: 0.75rem;
     border: 1px solid #E5E7EB;
     padding: 0.75rem 1rem;
+    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.03);
 }
 .tv-title {
     font-weight: 600;
@@ -133,6 +140,11 @@ body, .main {
     border-radius: 999px;
     font-weight: 600;
     display: inline-block;
+}
+.stButton>button {
+    border-radius: 0.5rem;
+    padding: 0.45rem 0.8rem;
+    font-weight: 600;
 }
 </style>
 """
@@ -435,46 +447,72 @@ def latest_signal(df: pd.DataFrame) -> str:
     return valid["signal"].iloc[-1] if not valid.empty else "NO DATA"
 
 
-def compute_backtest_trades(df: pd.DataFrame, horizon: int = 5) -> pd.DataFrame:
+def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Erzeugt eine Backtest-Tabelle:
-    entry_time, exit_time, signal, reason, entry_price, exit_price, ret_pct, correct
+    Long-only: Einstieg bei BUY/STRONG BUY, Ausstieg beim nächsten SELL/STRONG SELL
+    (oder bei der letzten Kerze, falls kein Gegensignal mehr kommt).
     """
-    if df.empty or "signal" not in df.columns:
+    if df.empty or "signal" not in df.columns or "close" not in df.columns:
         return pd.DataFrame()
 
     rows = []
     closes = df["close"].values
     signals = df["signal"].values
     idx = df.index
-
     has_reason = "signal_reason" in df.columns
 
-    for i in range(len(df) - horizon):
-        sig = signals[i]
-        if sig not in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
+    in_pos = False
+    entry_price = None
+    entry_idx = None
+    entry_sig = None
+    entry_reason = ""
+
+    for i, sig in enumerate(signals):
+        price = closes[i]
+
+        if not in_pos and sig in ["BUY", "STRONG BUY"]:
+            entry_price = price
+            entry_idx = idx[i]
+            entry_sig = sig
+            entry_reason = df["signal_reason"].iloc[i] if has_reason else ""
+            in_pos = True
             continue
 
-        entry = closes[i]
-        exit_ = closes[i + horizon]
-        if entry == 0:
-            continue
+        if in_pos and sig in ["SELL", "STRONG SELL"]:
+            exit_price = price
+            exit_idx = idx[i]
+            ret_pct = (exit_price - entry_price) / entry_price * 100
+            rows.append(
+                {
+                    "entry_time": entry_idx,
+                    "exit_time": exit_idx,
+                    "signal": entry_sig,
+                    "exit_signal": sig,
+                    "reason": entry_reason,
+                    "entry_price": entry_price,
+                    "exit_price": exit_price,
+                    "ret_pct": float(ret_pct),
+                    "correct": bool(ret_pct > 0),
+                }
+            )
+            in_pos = False
 
-        ret = (exit_ - entry) / entry * 100
-        direction = 1 if sig in ["BUY", "STRONG BUY"] else -1
-        correct = (np.sign(ret) * direction) > 0
-        reason = df["signal_reason"].iloc[i] if has_reason else ""
-
+    # Offene Position am Ende schließen
+    if in_pos:
+        exit_price = closes[-1]
+        exit_idx = idx[-1]
+        ret_pct = (exit_price - entry_price) / entry_price * 100
         rows.append(
             {
-                "entry_time": idx[i],
-                "exit_time": idx[i + horizon],
-                "signal": sig,
-                "reason": reason,
-                "entry_price": entry,
-                "exit_price": exit_,
-                "ret_pct": float(ret),
-                "correct": bool(correct),
+                "entry_time": entry_idx,
+                "exit_time": exit_idx,
+                "signal": entry_sig,
+                "exit_signal": "END",
+                "reason": entry_reason,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "ret_pct": float(ret_pct),
+                "correct": bool(ret_pct > 0),
             }
         )
 
@@ -527,7 +565,6 @@ def init_state():
     st.session_state.setdefault("selected_symbol", "BTC")
     st.session_state.setdefault("selected_timeframe", DEFAULT_TIMEFRAME)
     st.session_state.setdefault("theme", "Dark")
-    st.session_state.setdefault("backtest_horizon", 5)
     st.session_state.setdefault("backtest_trades", pd.DataFrame())
     st.session_state.setdefault("copilot_question", "")
     # Zeitraum-Defaults (nur Platzhalter, Widget steuert diese Keys)
@@ -585,13 +622,7 @@ def main():
 
     # 3) Backtest
     st.sidebar.markdown("### Backtest")
-    horizon = st.sidebar.slider(
-        "Halte-Dauer (Kerzen)",
-        1,
-        20,
-        value=st.session_state.backtest_horizon,
-    )
-    st.session_state.backtest_horizon = horizon
+    st.sidebar.info("Long-only Backtest: Buy halten bis Sell-Signal.")
 
     # 4) Theme
     st.sidebar.markdown("### Theme")
@@ -605,19 +636,19 @@ def main():
     # Theme anwenden
     st.markdown(DARK_CSS if theme == "Dark" else LIGHT_CSS, unsafe_allow_html=True)
 
-    # Header Bar
+    # Header Bar (TV-Style)
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     st.markdown(
         f"""
-        <div class="tv-card" style="margin-bottom: 0.4rem;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                    <div class="tv-title">Crypto Live + AI CoPilot</div>
-                    <div style="font-size:1.05rem; font-weight:600;">
-                        TradingView Style • Desktop • KI-Unterstützung
-                    </div>
+        <div class="tv-card" style="margin-bottom: 0.4rem; padding: 0.65rem 0.9rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap: 1rem;">
+                <div style="display:flex; align-items:center; gap: 0.6rem;">
+                    <div style="font-size:1.1rem; font-weight:700;">{symbol_label}/{tf_label.upper()}</div>
+                    <span style="background:#2563eb; color:white; padding:0.2rem 0.6rem; border-radius: 999px; font-size:0.8rem; font-weight:600;">
+                        Live
+                    </span>
                 </div>
-                <div style="text-align:right; font-size:0.8rem; opacity:0.8;">
+                <div style="text-align:right; font-size:0.85rem; opacity:0.85;">
                     Datenquelle: Bitfinex Spot<br/>
                     Update: {now}
                 </div>
@@ -678,19 +709,23 @@ def main():
 
             df_watch = pd.DataFrame(rows).set_index("Symbol")
 
-            def highlight(row):
-                theme_local = st.session_state.theme
-                if row.name == st.session_state.selected_symbol:
-                    bg = "#111827" if theme_local == "Dark" else "#D1D5DB"
-                    fg = "white" if theme_local == "Dark" else "black"
-                    return [f"background-color:{bg}; color:{fg}"] * len(row)
-                return [""] * len(row)
-
-            styled = df_watch.style.apply(highlight, axis=1).format(
-                {"Price": "{:,.2f}", "Change %": "{:+.2f}"}
-            )
-
-            st.dataframe(styled, use_container_width=True, height=220)
+            for _, r in df_watch.reset_index().iterrows():
+                c1, c2, c3, c4, c5 = st.columns([1.4, 1.8, 1.5, 1.5, 1])
+                c1.markdown(f"**{r['Symbol']}**")
+                price_txt = "–" if pd.isna(r["Price"]) else f"{r['Price']:.2f}"
+                chg = r["Change %"]
+                chg_txt = "–" if pd.isna(chg) else f"{chg:+.2f}%"
+                chg_color = "#10B981" if (pd.notna(chg) and chg >= 0) else "#EF4444"
+                c2.markdown(price_txt)
+                c3.markdown(f"<span style='color:{chg_color};'>{chg_txt}</span>", unsafe_allow_html=True)
+                sig_color_local = signal_color(r["Signal"])
+                c4.markdown(
+                    f"<span style='background:{sig_color_local}; color:white; padding:0.2rem 0.55rem; border-radius:999px; font-size:0.8rem; font-weight:600;'>{r['Signal']}</span>",
+                    unsafe_allow_html=True,
+                )
+                if c5.button("Wählen", key=f"watch_{r['Symbol']}"):
+                    st.session_state.selected_symbol = r["Symbol"]
+                    st.experimental_rerun()
 
             st.markdown("</div>", unsafe_allow_html=True)
 
@@ -887,10 +922,9 @@ def main():
                 if df.empty:
                     st.info("Keine Daten.")
                 else:
-                    horizon = st.session_state.backtest_horizon
-                    st.caption(f"Halte-Dauer: **{horizon} Kerzen**")
+                    st.caption("Long-only: Buy/Strong Buy halten bis Sell/Strong Sell oder letzte Kerze.")
 
-                    bt = compute_backtest_trades(df, horizon)
+                    bt = compute_backtest_trades(df)
                     st.session_state.backtest_trades = bt
 
                     stats = summarize_backtest(bt)
@@ -898,13 +932,14 @@ def main():
                     if not stats:
                         st.info("Keine verwertbaren Trades.")
                     else:
-                        st.markdown(f"**Trades gesamt:** {stats['total_trades']}")
-                        st.markdown(f"**Ø Return:** {stats['overall_avg_return']:.2f}%")
-                        st.markdown(f"**Trefferquote:** {stats['overall_hit_rate']:.1f}%")
+                        kpi_cols = st.columns(3)
+                        kpi_cols[0].metric("Trades", stats["total_trades"])
+                        kpi_cols[1].metric("Ø Return %", f"{stats['overall_avg_return']:.2f}")
+                        kpi_cols[2].metric("Hit Rate %", f"{stats['overall_hit_rate']:.1f}")
 
                         if stats.get("per_type"):
                             st.markdown("---")
-                            st.caption("Pro Signal:")
+                            st.caption(f"{symbol_label} — {tf_label}")
                             st.table(pd.DataFrame(stats["per_type"]))
 
                 st.markdown("</div>", unsafe_allow_html=True)
@@ -997,16 +1032,18 @@ def main():
 
             # --- TAB 1: Auto-Analyse / Insights (nur CoPilot) ---
             with tab_auto:
-                st.markdown(f"**Automatische KI-Analyse ({symbol_label} – {tf_label})**")
-            
-                if st.button(
-                    "🔄 Analyse aktualisieren",
-                    key=f"btn_reanalyse_{symbol_label}_{tf_label}",
-                ):
-                    run_auto_analysis()
-            
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    st.markdown(f"**Automatische KI-Analyse ({symbol_label} – {tf_label})**")
+                with c2:
+                    if st.button(
+                        "🔄 Aktualisieren",
+                        key=f"btn_reanalyse_{symbol_label}_{tf_label}",
+                    ):
+                        run_auto_analysis()
+
                 auto_text = st.session_state.get(auto_key, "Noch keine Analyse verfügbar.")
-                st.write(auto_text)
+                st.markdown(auto_text)
 
             # --- TAB 2: Interaktiver KI-Chat ---
             with tab_chat:
@@ -1022,7 +1059,7 @@ def main():
                 st.session_state.copilot_question = question
 
                 if st.button(
-                    "Antwort vom CoPilot holen",
+                    "Antwort holen",
                     key=f"btn_copilot_chat_{symbol_label}_{tf_label}",
                 ):
                     if not question.strip():

@@ -2,8 +2,12 @@
 import numpy as np
 import pandas as pd
 
-def compute_backtest_trades(df: pd.DataFrame, horizon: int = 5) -> pd.DataFrame:
-    if df.empty:
+def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Long-only Logik: Einstieg bei BUY/STRONG BUY, Ausstieg beim nächsten SELL/STRONG SELL
+    (oder bei der letzten Kerze, falls kein Gegensignal mehr kommt).
+    """
+    if df.empty or "signal" not in df.columns or "close" not in df.columns:
         return pd.DataFrame()
 
     rows = []
@@ -11,22 +15,49 @@ def compute_backtest_trades(df: pd.DataFrame, horizon: int = 5) -> pd.DataFrame:
     signals = df["signal"].values
     idx = df.index
 
-    for i in range(len(df) - horizon):
-        sig = signals[i]
-        if sig not in ["STRONG BUY", "BUY", "SELL", "STRONG SELL"]:
+    in_pos = False
+    entry_price = None
+    entry_idx = None
+    entry_sig = None
+
+    for i, sig in enumerate(signals):
+        price = closes[i]
+
+        if not in_pos and sig in ["BUY", "STRONG BUY"]:
+            entry_price = price
+            entry_idx = idx[i]
+            entry_sig = sig
+            in_pos = True
             continue
 
-        entry = closes[i]
-        exit_ = closes[i + horizon]
-        direction = 1 if sig in ["BUY", "STRONG BUY"] else -1
+        if in_pos and sig in ["SELL", "STRONG SELL"]:
+            exit_price = price
+            exit_idx = idx[i]
+            ret_pct = (exit_price - entry_price) / entry_price * 100
+            rows.append({
+                "entry_time": entry_idx,
+                "exit_time": exit_idx,
+                "signal": entry_sig,
+                "exit_signal": sig,
+                "entry_price": entry_price,
+                "exit_price": exit_price,
+                "ret_pct": ret_pct,
+                "correct": ret_pct > 0,
+            })
+            in_pos = False
 
-        ret_pct = (exit_ - entry) / entry * 100 * direction
+    # Offene Position am Ende schließen
+    if in_pos:
+        exit_price = closes[-1]
+        exit_idx = idx[-1]
+        ret_pct = (exit_price - entry_price) / entry_price * 100
         rows.append({
-            "entry_time": idx[i],
-            "exit_time": idx[i + horizon],
-            "signal": sig,
-            "entry_price": entry,
-            "exit_price": exit_,
+            "entry_time": entry_idx,
+            "exit_time": exit_idx,
+            "signal": entry_sig,
+            "exit_signal": "END",
+            "entry_price": entry_price,
+            "exit_price": exit_price,
             "ret_pct": ret_pct,
             "correct": ret_pct > 0,
         })
