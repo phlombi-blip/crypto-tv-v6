@@ -69,7 +69,8 @@ def candles_for_history(interval_internal: str, years: float = YEARS_HISTORY) ->
         "1D": 1,         # 1
     }
     candles_per_day = candles_per_day_map.get(interval_internal, 24)
-    return int(candles_per_day * 365 * years)
+    # Bitfinex akzeptiert pro Request max ~10k Kerzen – clampen, um 500er zu vermeiden.
+    return min(int(candles_per_day * 365 * years), 9900)
 
 
 # ---------------------------------------------------------
@@ -81,7 +82,7 @@ body, .main {
     background-color: #020617;
 }
 .block-container {
-    padding-top: 0.5rem;
+    padding-top: 1.25rem;
     padding-bottom: 0.5rem;
 }
 .tv-card {
@@ -108,6 +109,7 @@ body, .main {
     border-radius: 0.5rem;
     padding: 0.45rem 0.8rem;
     font-weight: 600;
+    white-space: nowrap;
 }
 </style>
 """
@@ -118,7 +120,7 @@ body, .main {
     background-color: #F3F4F6;
 }
 .block-container {
-    padding-top: 0.5rem;
+    padding-top: 1.25rem;
     padding-bottom: 0.5rem;
 }
 .tv-card {
@@ -145,6 +147,7 @@ body, .main {
     border-radius: 0.5rem;
     padding: 0.45rem 0.8rem;
     font-weight: 600;
+    white-space: nowrap;
 }
 </style>
 """
@@ -466,6 +469,7 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
     entry_idx = None
     entry_sig = None
     entry_reason = ""
+    entry_pos = None
 
     for i, sig in enumerate(signals):
         price = closes[i]
@@ -475,6 +479,7 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
             entry_idx = idx[i]
             entry_sig = sig
             entry_reason = df["signal_reason"].iloc[i] if has_reason else ""
+            entry_pos = i
             in_pos = True
             continue
 
@@ -482,6 +487,8 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
             exit_price = price
             exit_idx = idx[i]
             ret_pct = (exit_price - entry_price) / entry_price * 100
+            hold_bars = i - entry_pos
+            hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
             rows.append(
                 {
                     "entry_time": entry_idx,
@@ -493,6 +500,8 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
                     "exit_price": exit_price,
                     "ret_pct": float(ret_pct),
                     "correct": bool(ret_pct > 0),
+                    "hold_bars": hold_bars,
+                    "hold_time": hold_time,
                 }
             )
             in_pos = False
@@ -502,6 +511,8 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
         exit_price = closes[-1]
         exit_idx = idx[-1]
         ret_pct = (exit_price - entry_price) / entry_price * 100
+        hold_bars = len(df) - 1 - entry_pos
+        hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
         rows.append(
             {
                 "entry_time": entry_idx,
@@ -513,6 +524,8 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
                 "exit_price": exit_price,
                 "ret_pct": float(ret_pct),
                 "correct": bool(ret_pct > 0),
+                "hold_bars": hold_bars,
+                "hold_time": hold_time,
             }
         )
 
@@ -622,7 +635,7 @@ def main():
 
     # 3) Backtest
     st.sidebar.markdown("### Backtest")
-    st.sidebar.info("Long-only Backtest: Buy halten bis Sell-Signal.")
+    # Hinweis entfällt, Logik steht im Panel
 
     # 4) Theme
     st.sidebar.markdown("### Theme")
@@ -662,16 +675,13 @@ def main():
     symbol = SYMBOLS[symbol_label]
     interval_internal = TIMEFRAMES[tf_label]
 
-    # Layout: Links Markt / Charts, Rechts KI-Copilot
-    col_left, col_right = st.columns([4, 1], gap="medium")
+    # Layout: Watchlist und Chart nebeneinander (TV-Style)
+    col_watch, col_chart, col_right = st.columns([1.4, 3.6, 1.4], gap="medium")
 
-    # ---------------------------------------------------------
-    # WATCHLIST + CHARTS (LINKS)
-    # ---------------------------------------------------------
-    with col_left:
-        # WATCHLIST
+    # WATCHLIST (links)
+    with col_watch:
         with st.container():
-            st.markdown('<div class="tv-card">', unsafe_allow_html=True)
+            st.markdown('<div class="tv-card" style="height:100%;">', unsafe_allow_html=True)
             st.markdown('<div class="tv-title">Watchlist</div>', unsafe_allow_html=True)
 
             rows = []
@@ -710,26 +720,27 @@ def main():
             df_watch = pd.DataFrame(rows).set_index("Symbol")
 
             for _, r in df_watch.reset_index().iterrows():
-                c1, c2, c3, c4, c5 = st.columns([1.4, 1.8, 1.5, 1.5, 1])
+                c1, c2, c3 = st.columns([1.2, 1.6, 1.2])
                 c1.markdown(f"**{r['Symbol']}**")
                 price_txt = "–" if pd.isna(r["Price"]) else f"{r['Price']:.2f}"
                 chg = r["Change %"]
                 chg_txt = "–" if pd.isna(chg) else f"{chg:+.2f}%"
                 chg_color = "#10B981" if (pd.notna(chg) and chg >= 0) else "#EF4444"
-                c2.markdown(price_txt)
-                c3.markdown(f"<span style='color:{chg_color};'>{chg_txt}</span>", unsafe_allow_html=True)
+                c2.markdown(f"{price_txt}  \n<span style='color:{chg_color};font-size:0.85rem;'>{chg_txt}</span>", unsafe_allow_html=True)
                 sig_color_local = signal_color(r["Signal"])
-                c4.markdown(
-                    f"<span style='background:{sig_color_local}; color:white; padding:0.2rem 0.55rem; border-radius:999px; font-size:0.8rem; font-weight:600;'>{r['Signal']}</span>",
+                btn_label = "Aktiv" if r["Symbol"] == st.session_state.selected_symbol else "Wählen"
+                c3.markdown(
+                    f"<span style='background:{sig_color_local}; color:white; padding:0.18rem 0.55rem; border-radius:999px; font-size:0.78rem; font-weight:600;'>{r['Signal']}</span>",
                     unsafe_allow_html=True,
                 )
-                if c5.button("Wählen", key=f"watch_{r['Symbol']}"):
+                if st.button(btn_label, key=f"watch_{r['Symbol']}"):
                     st.session_state.selected_symbol = r["Symbol"]
                     st.experimental_rerun()
 
             st.markdown("</div>", unsafe_allow_html=True)
 
-        # CHART-BEREICH
+    # CHART-BEREICH (Mitte)
+    with col_chart:
         st.markdown("")
         with st.container():
             st.markdown('<div class="tv-card">', unsafe_allow_html=True)
@@ -949,6 +960,7 @@ def main():
         with st.container():
             st.markdown('<div class="tv-card">', unsafe_allow_html=True)
             st.markdown('<div class="tv-title">Trades List (Backtest)</div>', unsafe_allow_html=True)
+            st.caption("Return % = (Exit - Entry) / Entry * 100 · Hold Bars = Kerzen zwischen Entry/Exit")
 
             bt = st.session_state.backtest_trades
 
@@ -959,16 +971,25 @@ def main():
                 df_show["entry_time"] = df_show["entry_time"].dt.strftime("%Y-%m-%d %H:%M")
                 df_show["exit_time"] = df_show["exit_time"].dt.strftime("%Y-%m-%d %H:%M")
                 df_show["ret_pct"] = df_show["ret_pct"].map(lambda x: f"{x:.2f}")
+                if "hold_bars" in df_show.columns:
+                    df_show["hold_bars"] = df_show["hold_bars"].astype(int)
+                if "hold_time" in df_show.columns:
+                    df_show["hold_time"] = df_show["hold_time"].astype(str)
                 df_show["correct"] = df_show["correct"].map(lambda x: "✅" if x else "❌")
+
+                df_show = df_show.rename(columns={"ret_pct": "Return %", "hold_bars": "Hold Bars", "hold_time": "Hold Time"})
 
                 cols = [
                     "entry_time",
                     "exit_time",
                     "signal",
+                    "exit_signal",
                     "reason",
                     "entry_price",
                     "exit_price",
-                    "ret_pct",
+                    "Return %",
+                    "Hold Bars",
+                    "Hold Time",
                     "correct",
                 ]
                 df_show = df_show[[c for c in cols if c in df_show.columns]]
@@ -1032,12 +1053,12 @@ def main():
 
             # --- TAB 1: Auto-Analyse / Insights (nur CoPilot) ---
             with tab_auto:
-                c1, c2 = st.columns([3, 1])
+                c1, c2 = st.columns([4, 1])
                 with c1:
                     st.markdown(f"**Automatische KI-Analyse ({symbol_label} – {tf_label})**")
                 with c2:
                     if st.button(
-                        "🔄 Aktualisieren",
+                        "🔄 Neu laden",
                         key=f"btn_reanalyse_{symbol_label}_{tf_label}",
                     ):
                         run_auto_analysis()
@@ -1058,10 +1079,7 @@ def main():
                 )
                 st.session_state.copilot_question = question
 
-                if st.button(
-                    "Antwort holen",
-                    key=f"btn_copilot_chat_{symbol_label}_{tf_label}",
-                ):
+                if st.button("Antwort holen", key=f"btn_copilot_chat_{symbol_label}_{tf_label}"):
                     if not question.strip():
                         st.warning("Bitte zuerst eine Frage eingeben.")
                     else:

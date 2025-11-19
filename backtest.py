@@ -19,6 +19,7 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
     entry_price = None
     entry_idx = None
     entry_sig = None
+    entry_pos = None
 
     for i, sig in enumerate(signals):
         price = closes[i]
@@ -27,6 +28,7 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
             entry_price = price
             entry_idx = idx[i]
             entry_sig = sig
+            entry_pos = i
             in_pos = True
             continue
 
@@ -34,6 +36,8 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
             exit_price = price
             exit_idx = idx[i]
             ret_pct = (exit_price - entry_price) / entry_price * 100
+            hold_bars = i - entry_pos
+            hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
             rows.append({
                 "entry_time": entry_idx,
                 "exit_time": exit_idx,
@@ -43,6 +47,8 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
                 "exit_price": exit_price,
                 "ret_pct": ret_pct,
                 "correct": ret_pct > 0,
+                "hold_bars": hold_bars,
+                "hold_time": hold_time,
             })
             in_pos = False
 
@@ -51,6 +57,8 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
         exit_price = closes[-1]
         exit_idx = idx[-1]
         ret_pct = (exit_price - entry_price) / entry_price * 100
+        hold_bars = len(df) - 1 - entry_pos
+        hold_time = exit_idx - entry_idx if isinstance(exit_idx, pd.Timestamp) else None
         rows.append({
             "entry_time": entry_idx,
             "exit_time": exit_idx,
@@ -60,6 +68,8 @@ def compute_backtest_trades(df: pd.DataFrame) -> pd.DataFrame:
             "exit_price": exit_price,
             "ret_pct": ret_pct,
             "correct": ret_pct > 0,
+            "hold_bars": hold_bars,
+            "hold_time": hold_time,
         })
 
     return pd.DataFrame(rows)
