@@ -8,6 +8,7 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 from groq import Groq
+from ai.patterns import detect_patterns
 
 
 # ---------------------------------------------------------
@@ -240,6 +241,18 @@ def ask_copilot(
     # Kompakte Beschreibung der Marktdaten für den Prompt
     df_summary = _compress_df_for_llm(df, timeframe=timeframe, max_chars=2000)
 
+    # Chartmuster-Analyse (technische Heuristiken)
+    patterns = detect_patterns(df)
+    if patterns:
+        pattern_text = "\n".join(
+            [
+                f"- {p.name} (Score {p.score}/100, {p.direction}): {p.rationale}; Ausblick: {p.projection}"
+                for p in patterns
+            ]
+        )
+    else:
+        pattern_text = "Keine klaren Muster gefunden."
+
     # SYSTEM PROMPT — Strategie-basiert & ohne HTML
     system_prompt = (
         "Du bist ein nüchterner, präzise formulierender technischer Analyst für Kryptowährungen.\n"
@@ -281,27 +294,33 @@ def ask_copilot(
         f"Timeframe: {timeframe}\n"
         f"Aktueller Signalscore laut System: {last_signal}\n\n"
         f"Technische Daten (kompakt):\n{df_summary}\n\n"
+        f"Erkannte Chartmuster:\n{pattern_text}\n\n"
         f"Benutzerfrage:\n{raw_question}\n\n"
-    
+
         "Strukturiere deine Antwort bitte genau in diese 4 Abschnitte:\n\n"
-    
+
         "#### 1) Kurzfassung (max. 3 Bulletpoints)\n"
         "- Maximal 1 Satz pro Bullet.\n"
         "- Fokus: Trend, Risiko, Chance im aktuellen Setup.\n\n"
-    
+
         "#### 2) Freie technische Analyse des Charts\n"
         "- Beschreibe klar den Trend: EMA20/EMA50 relativ zur MA200.\n"
         "- Bollinger-Bänder (PFLICHT): Lage am oberen/mittleren/unteren Band, Enge/Expansion, Mean-Reversion oder Trendfortsetzung.\n"
         "- Candlesticks (PFLICHT): Mindestens 2 konkrete Muster/Signale (Dochte, Engulfing, Hammer, Shooting Star) – und was sie aussagen.\n"
         "- RSI(14): überkauft/überverkauft, Momentum, Divergenzen.\n"
         "- Unterstützungen/Widerstände: wichtigste Preiszonen.\n\n"
-    
-        "#### 3) Einordnung im Kontext der Strategie\n"
+
+        "#### 3) Chartmuster & Fit-Score\n"
+        "- Nenne das beste Muster (Name, Score/100, bull/bear/neutral).\n"
+        "- Kurz begründen, warum das Muster passt.\n"
+        "- Erwartete Fortsetzung laut Muster (rein technisch, kein Rat).\n\n"
+
+        "#### 4) Einordnung im Kontext der Strategie\n"
         "- Ordne das aktuelle Setup einem der fünf Signale zu: STRONG BUY / BUY / SELL / STRONG SELL / HOLD.\n"
         "- Vergleiche diese Einschätzung mit dem Signalscore aus dem System.\n"
         "- Wenn der Kurs unter der MA200 liegt oder die MA200 fehlt, MUSS die Strategie immer HOLD sein.\n\n"
-    
-        "#### 4) Hypothetische, rein technische Handelsidee (keine Anlageberatung)\n"
+
+        "#### 5) Hypothetische, rein technische Handelsidee (keine Anlageberatung)\n"
         "- WICHTIG: Wenn der Kurs unter der MA200 liegt → KEINE konkrete Einstiegs-, Stop- oder Zielzone formulieren.\n"
         "- Stattdessen: Nur beschreiben, welche Bedingungen erfüllt sein müssten, damit wieder Long-Setups aktiv wären (z.B. Reclaim MA200).\n"
         "- Wenn der Kurs über MA200 liegt, formuliere eine klassische Idee:\n"
