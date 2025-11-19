@@ -78,37 +78,34 @@ def candles_for_history(interval_internal: str, years: float = YEARS_HISTORY) ->
 # ---------------------------------------------------------
 DARK_CSS = """
 <style>
-body, .main {
-    background-color: #020617;
-}
-.block-container {
-    padding-top: 1.25rem;
-    padding-bottom: 0.5rem;
-}
+body, .main { background-color: #0b1224; }
+.block-container { padding-top: 1.4rem; padding-bottom: 0.6rem; }
 .tv-card {
-    background: #020617;
-    border-radius: 0.75rem;
-    border: 1px solid #1f2933;
-    padding: 0.75rem 1rem;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+    background: #111827;
+    border-radius: 0.9rem;
+    border: 1px solid #1f2937;
+    padding: 0.85rem 1rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.28);
 }
 .tv-title {
-    font-weight: 600;
+    font-weight: 700;
     font-size: 0.9rem;
+    letter-spacing: 0.02em;
     color: #9ca3af;
     text-transform: uppercase;
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.35rem;
 }
 .signal-badge {
     padding: 0.25rem 0.7rem;
     border-radius: 999px;
-    font-weight: 600;
+    font-weight: 700;
     display: inline-block;
+    font-size: 0.82rem;
 }
 .stButton>button {
-    border-radius: 0.5rem;
-    padding: 0.45rem 0.8rem;
-    font-weight: 600;
+    border-radius: 0.55rem;
+    padding: 0.45rem 0.9rem;
+    font-weight: 700;
     white-space: nowrap;
 }
 </style>
@@ -116,37 +113,34 @@ body, .main {
 
 LIGHT_CSS = """
 <style>
-body, .main {
-    background-color: #F3F4F6;
-}
-.block-container {
-    padding-top: 1.25rem;
-    padding-bottom: 0.5rem;
-}
+body, .main { background-color: #F5F6FB; }
+.block-container { padding-top: 1.4rem; padding-bottom: 0.6rem; }
 .tv-card {
     background: #FFFFFF;
-    border-radius: 0.75rem;
+    border-radius: 0.9rem;
     border: 1px solid #E5E7EB;
-    padding: 0.75rem 1rem;
-    box-shadow: inset 0 0 0 1px rgba(0,0,0,0.03);
+    padding: 0.85rem 1rem;
+    box-shadow: 0 10px 24px rgba(0,0,0,0.08);
 }
 .tv-title {
-    font-weight: 600;
+    font-weight: 700;
     font-size: 0.9rem;
+    letter-spacing: 0.02em;
     color: #6B7280;
     text-transform: uppercase;
-    margin-bottom: 0.3rem;
+    margin-bottom: 0.35rem;
 }
 .signal-badge {
     padding: 0.25rem 0.7rem;
     border-radius: 999px;
-    font-weight: 600;
+    font-weight: 700;
     display: inline-block;
+    font-size: 0.82rem;
 }
 .stButton>button {
-    border-radius: 0.5rem;
-    padding: 0.45rem 0.8rem;
-    font-weight: 600;
+    border-radius: 0.55rem;
+    padding: 0.45rem 0.9rem;
+    font-weight: 700;
     white-space: nowrap;
 }
 </style>
@@ -653,8 +647,7 @@ def main():
     )
 
     # 3) Backtest
-    st.sidebar.markdown("### Backtest")
-    # Hinweis entfällt, Logik steht im Panel
+    # Backtest-Section im Sidebar entfällt (Panel erklärt es)
 
     # 4) Theme
     st.sidebar.markdown("### Theme")
@@ -694,13 +687,16 @@ def main():
     symbol = SYMBOLS[symbol_label]
     interval_internal = TIMEFRAMES[tf_label]
 
-    # Layout: Watchlist und Chart nebeneinander (TV-Style)
-    col_watch, col_chart, col_right = st.columns([1.4, 3.6, 1.4], gap="medium")
+    # Layout: Hauptbereich (Watchlist + Charts + Backtest) und rechts Copilot
+    col_main, col_right = st.columns([4.2, 1.8], gap="medium")
 
-    # WATCHLIST (links)
-    with col_watch:
+    # ---------------------------------------------------------
+    # HAUPTBEREICH (WATCHLIST + CHARTS)
+    # ---------------------------------------------------------
+    with col_main:
+        # WATCHLIST kompakt über dem Chart
         with st.container():
-            st.markdown('<div class="tv-card" style="height:100%;">', unsafe_allow_html=True)
+            st.markdown('<div class="tv-card">', unsafe_allow_html=True)
             st.markdown('<div class="tv-title">Watchlist</div>', unsafe_allow_html=True)
 
             rows = []
@@ -736,30 +732,14 @@ def main():
                         }
                     )
 
-            df_watch = pd.DataFrame(rows).set_index("Symbol")
-
-            for _, r in df_watch.reset_index().iterrows():
-                c1, c2, c3 = st.columns([1.2, 1.6, 1.2])
-                c1.markdown(f"**{r['Symbol']}**")
-                price_txt = "–" if pd.isna(r["Price"]) else f"{r['Price']:.2f}"
-                chg = r["Change %"]
-                chg_txt = "–" if pd.isna(chg) else f"{chg:+.2f}%"
-                chg_color = "#10B981" if (pd.notna(chg) and chg >= 0) else "#EF4444"
-                c2.markdown(f"{price_txt}  \n<span style='color:{chg_color};font-size:0.85rem;'>{chg_txt}</span>", unsafe_allow_html=True)
-                sig_color_local = signal_color(r["Signal"])
-                btn_label = "Aktiv" if r["Symbol"] == st.session_state.selected_symbol else "Wählen"
-                c3.markdown(
-                    f"<span style='background:{sig_color_local}; color:white; padding:0.18rem 0.55rem; border-radius:999px; font-size:0.78rem; font-weight:600;'>{r['Signal']}</span>",
-                    unsafe_allow_html=True,
-                )
-                if st.button(btn_label, key=f"watch_{r['Symbol']}"):
-                    st.session_state.selected_symbol = r["Symbol"]
-                    st.experimental_rerun()
-
+            df_watch = pd.DataFrame(rows)
+            if not df_watch.empty:
+                df_watch["Change %"] = df_watch["Change %"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "–")
+                df_watch["Price"] = df_watch["Price"].map(lambda x: f"{x:,.2f}" if pd.notna(x) else "–")
+                st.dataframe(df_watch, use_container_width=True, height=170, hide_index=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-    # CHART-BEREICH (Mitte)
-    with col_chart:
+        # CHART-BEREICH
         st.markdown("")
         with st.container():
             st.markdown('<div class="tv-card">', unsafe_allow_html=True)
