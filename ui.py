@@ -740,6 +740,8 @@ def main():
 
             df_watch = pd.DataFrame(rows)
             if not df_watch.empty:
+                df_watch["Price"] = pd.to_numeric(df_watch["Price"], errors="coerce")
+                df_watch["Change %"] = pd.to_numeric(df_watch["Change %"], errors="coerce")
                 df_watch["Change %"] = df_watch["Change %"].map(lambda x: f"{x:+.2f}%" if pd.notna(x) else "–")
                 df_watch["Price"] = df_watch["Price"].map(lambda x: f"{x:,.2f}" if pd.notna(x) else "–")
                 st.dataframe(df_watch, use_container_width=True, height=170, hide_index=True)
