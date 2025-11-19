@@ -283,10 +283,23 @@ def fetch_yf_ohlc(symbol: str, interval: str, years: float = YEARS_HISTORY) -> p
     if df.empty:
         return pd.DataFrame()
 
+    # yfinance liefert bei Einzel-Ticker teils MultiIndex (Level 0 = Field, Level 1 = Ticker)
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
     df = df.rename(columns={"Open": "open", "High": "high", "Low": "low", "Close": "close", "Volume": "volume"})
+
+    # sicherstellen, dass nur die benötigten Spalten vorhanden sind
+    required_cols = ["open", "high", "low", "close", "volume"]
+    for col in required_cols:
+        if col not in df.columns:
+            df[col] = np.nan
+    df = df[required_cols]
+
     df.index = pd.to_datetime(df.index).tz_localize(None)
     df.sort_index(inplace=True)
-    return df[["open", "high", "low", "close", "volume"]]
+    df = df.dropna(subset=["open", "high", "low", "close"], how="any")
+    return df
 
 
 @st.cache_data(ttl=300)
