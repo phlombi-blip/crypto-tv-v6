@@ -241,7 +241,7 @@ def compute_rsi(series: pd.Series, period: int = 14) -> pd.Series:
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """
-    EMA20/EMA50, MA200, Bollinger 20, RSI14.
+    EMA20/EMA50, MA200, Bollinger 20, RSI14, ATR14, ADX14, RVOL20.
     """
     if df.empty:
         return df
@@ -260,24 +260,75 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
     df["rsi14"] = compute_rsi(close)
 
+    # True Range / ATR14
+    high = df["high"]
+    low = df["low"]
+    prev_close = close.shift(1)
+    tr = pd.concat(
+        [
+            (high - low).abs(),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
+    df["atr14"] = tr.rolling(14).mean()
+
+    # ADX14 (Wilder)
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = ((up_move > down_move) & (up_move > 0)) * up_move
+    minus_dm = ((down_move > up_move) & (down_move > 0)) * down_move
+    tr14 = tr.rolling(14).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1 / 14, adjust=False).mean() / tr14)
+    minus_di = 100 * (minus_dm.ewm(alpha=1 / 14, adjust=False).mean() / tr14)
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di + 1e-9)) * 100
+    df["adx14"] = dx.ewm(alpha=1 / 14, adjust=False).mean()
+
+    # Relative Volume (RVOL20): aktuelles Volumen / 20er Durchschnitt
+    if "volume" in df.columns:
+        df["rvol20"] = df["volume"] / df["volume"].rolling(20).mean()
+    else:
+        df["rvol20"] = np.nan
+
     return df
 
 
 # ---------------------------------------------------------
-# SIGNAL-LOGIK (mit Begründung)
+# SIGNAL-LOGIK (mit Begründung) – erweiterte Profi-Variante
 # ---------------------------------------------------------
+def _hh_hl_state(df: pd.DataFrame) -> pd.Series:
+    """Grobe HH/HL-Erkennung: +1 = HH/HL intakt, -1 = LH/LL, 0 = neutral."""
+    if df.empty:
+        return pd.Series([], dtype=int)
+    highs = df["high"]
+    lows = df["low"]
+    hh_hl = [0]
+    for i in range(1, len(df)):
+        hh = highs.iloc[i] > highs.iloc[i - 1]
+        hl = lows.iloc[i] > lows.iloc[i - 1]
+        if hh and hl:
+            hh_hl.append(1)
+        elif (not hh) and (not hl):
+            hh_hl.append(-1)
+        else:
+            hh_hl.append(0)
+    return pd.Series(hh_hl, index=df.index)
+
+
 def _signal_core_with_reason(last, prev):
     """
-    Kernlogik:
-    - Adaptive Bollinger
-    - RSI Trend Confirmation
-    - Blow-Off-Top Detector
+    Mehrschichtig:
+    - Regime: MA200/EMA50, ADX, RVOL
+    - Setups: Trend-Dip, Trend-Breakout, Reclaim
+    - Exits: Trendbruch / Überhitzung
     Liefert (signal, reason).
     """
 
     close = last["close"]
     prev_close = prev["close"]
 
+    ema20 = last["ema20"]
     ema50 = last["ema50"]
     ma200 = last["ma200"]
 
@@ -288,109 +339,77 @@ def _signal_core_with_reason(last, prev):
     bb_lo = last["bb_lo"]
     bb_mid = last["bb_mid"]
 
-    high = last["high"]
-    low = last["low"]
-    candle_range = high - low
-    upper_wick = high - max(close, last["open"])
+    adx = last.get("adx14", np.nan)
+    atr_pct = (last.get("atr14", np.nan) / close * 100) if close else np.nan
+    rvol = last.get("rvol20", np.nan)
 
-    # Adaptive Volatility → passt Bollinger-Sensitivität an
-    vol = (bb_up - bb_lo) / bb_mid if bb_mid != 0 else 0
-    is_low_vol = vol < 0.06
-    is_high_vol = vol > 0.12
-
-    # MA200 fehlt → nicht traden
+    # Regime-Filter (Long-Bias only)
     if pd.isna(ma200):
-        return "HOLD", "MA200 noch nicht verfügbar – zu wenig Historie, daher kein Trade."
-
-    # Nur Long-Trading in Bullen-Trends
+        return "HOLD", "MA200 nicht verfügbar – kein Regime."
     if close < ma200:
-        return "HOLD", "Kurs liegt unter MA200 – System handelt nur Long im Bullenmarkt."
+        return "HOLD", "Unter MA200 – kein Long-Regime."
+    if pd.notna(adx) and adx < 18:
+        return "HOLD", "Trend zu schwach (ADX < 18)."
+    if pd.notna(rvol) and rvol < 0.8:
+        return "HOLD", "Volumen zu dünn (RVOL < 0.8)."
+    if pd.notna(atr_pct) and atr_pct > 10:
+        return "HOLD", "Volatilität zu hoch (>10% ATR/Close)."
 
-    # Blow-Off-Top Detector
-    blowoff = (
-        candle_range > 0
-        and upper_wick > candle_range * 0.45
-        and close < prev_close
-        and close > bb_up
-        and rsi_now > 73
-    )
+    # Marktstruktur grob
+    hh_hl_flag = 1 if (ema20 > ema50 > ma200) else 0
 
-    if blowoff:
-        return (
-            "STRONG SELL",
-            "Blow-Off-Top: langer oberer Docht, Kurs über oberem Bollinger-Band "
-            "und RSI > 73 mit Umkehrkerze – hohes Top-Risiko."
-        )
-
-    # STRONG BUY – tiefer Dip
-    deep_dip = (
-        close <= bb_lo
-        and rsi_now < 35
-        and rsi_now > rsi_prev
-    )
-
-    if deep_dip:
-        if is_low_vol and close < bb_lo * 0.995:
-            return (
-                "STRONG BUY",
-                "Tiefer Dip: Kurs an/unter unterem Bollinger-Band in ruhiger Phase, "
-                "RSI < 35 dreht nach oben – aggressiver Rebound-Einstieg."
-            )
-        return (
-            "STRONG BUY",
-            "Tiefer Dip: Kurs am unteren Bollinger-Band, RSI < 35 und steigt wieder – "
-            "kräftiges Long-Signal."
-        )
-
-    # BUY – normale gesunde Pullbacks
-    buy_price_cond = (
-        close <= bb_lo * (1.01 if is_high_vol else 1.00)
-        or close <= ema50 * 0.96
-    )
-
-    buy_rsi_cond = (
-        30 < rsi_now <= 48
-        and rsi_now > rsi_prev
-    )
-
-    if buy_price_cond and buy_rsi_cond:
+    # Setup 1: Trend-Dip (Value-Zone + Rebound)
+    dip_zone = (close <= bb_mid) or (close <= ema50 * 1.01)
+    dip_rsi = (35 <= rsi_now <= 55) and (rsi_now > rsi_prev)
+    trend_ok = ema20 > ema50 > ma200
+    if trend_ok and dip_zone and dip_rsi:
         return (
             "BUY",
-            "Gesunder Pullback: Kurs im Bereich unteres Bollinger-Band bzw. leicht unter EMA50, "
-            "RSI zwischen 30 und 48 und dreht nach oben."
+            "Trend-Dip: Über MA200, EMA20>EMA50; Pullback zur Value-Zone (BB-Mid/EMA50) mit RSI-Rebound."
         )
 
-    # STRONG SELL – extreme Überhitzung
-    strong_sell_cond = (
-        close > ema50 * 1.12
-        and close > bb_up
-        and rsi_now > 80
-        and rsi_now < rsi_prev
-    )
+    # Setup 2: Breakout (Fortsetzung)
+    breakout_price = (close > bb_mid) and (close > prev_close) and (close > ema20)
+    breakout_rsi = (50 <= rsi_now <= 65) and (rsi_now >= rsi_prev)
+    breakout_vol = (pd.isna(rvol) or rvol >= 1.0)
+    if trend_ok and breakout_price and breakout_rsi and breakout_vol:
+        return (
+            "BUY",
+            "Trend-Breakout: Über MA200/EMA20/EMA50, Close über BB-Mid mit steigendem RSI; Volumen okay."
+        )
 
-    if strong_sell_cond:
+    # Setup 3: Reclaim nach Flush
+    reclaim = (prev_close < ema50) and (close > ema50) and (rsi_now > rsi_prev)
+    if trend_ok and reclaim:
+        return (
+            "BUY",
+            "Reclaim EMA50 nach Flush: Trend bleibt intakt, RSI dreht hoch – kleiner Re-Entry möglich."
+        )
+
+    # Exits / De-Risk: Überhitzung
+    overheat = (close > bb_up) and (rsi_now > 72) and (rsi_now < rsi_prev)
+    strong_overheat = (close > ema20 * 1.1) and (rsi_now > 80) and (rsi_now < rsi_prev)
+    if strong_overheat:
         return (
             "STRONG SELL",
-            "Extreme Überhitzung: Kurs deutlich über EMA50 und oberem Bollinger-Band, "
-            "RSI > 80 und fällt bereits – starkes Abverkaufsrisiko."
+            "Extreme Überhitzung: Kurs > 1.1x EMA20, RSI > 80 und dreht – Risiko auf Abverkauf."
         )
-
-    # SELL – normale Übertreibung
-    sell_cond = (
-        close > bb_up
-        and rsi_now > 72
-        and rsi_now < rsi_prev
-    )
-
-    if sell_cond:
+    if overheat:
         return (
             "SELL",
-            "Übertreibung: Kurs über dem oberen Bollinger-Band, RSI > 72 und dreht nach unten – "
-            "Gewinnmitnahme / Short-Signal."
+            "Überhitzung: Kurs über oberem BB, RSI > 72 und fällt – Gewinnmitnahme/De-Risk."
         )
 
-    # Nichts erkannt
-    return "HOLD", "Keine klare Übertreibung oder Dip – System wartet (HOLD)."
+    # Trendbruch-Exit (falls man Long wäre) – hier nur als Warnsignal
+    trend_break = (close < ema50) and (rsi_now < 50) and (rsi_now < rsi_prev)
+    if trend_break:
+        return (
+            "SELL",
+            "Trendbruch: Close < EMA50 und RSI < 50 fallend – Longs vorsichtig reduzieren."
+        )
+
+    # Standard: weiter halten / nichts tun
+    return "HOLD", "Kein Setup: Trend-Filter passt, aber weder Dip noch Breakout bestätigt."
 
 
 def signal_with_reason(last, prev):
