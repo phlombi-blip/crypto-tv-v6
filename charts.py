@@ -1,14 +1,14 @@
-# charts.py
+﻿# charts.py
 
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Nur für die Signal-Historie Punkte
+# Nur fÃ¼r die Signal-Historie Punkte
 signal_colors = {
-    "STRONG BUY": "#00e676",  # kräftiges Grün
-    "BUY": "#81c784",         # helleres Grün
+    "STRONG BUY": "#00e676",  # krÃ¤ftiges GrÃ¼n
+    "BUY": "#81c784",         # helleres GrÃ¼n
     "SELL": "#e57373",        # hellrot
-    "STRONG SELL": "#d32f2f", # kräftiges Rot
+    "STRONG SELL": "#d32f2f", # krÃ¤ftiges Rot
 }
 
 
@@ -34,11 +34,11 @@ def create_price_rsi_figure(df, symbol_label, timeframe_label, theme):
     Ein gemeinsamer Plot mit 2 Reihen:
     - oben: Price + EMA + Bollinger + Volume
     - unten: RSI (14)
-    shared_xaxes=True → Zoom & Range sind synchron.
+    shared_xaxes=True â†’ Zoom & Range sind synchron.
     """
 
     # --- Farb-Setup (TradingView-like) ---
-    BULL_COLOR = "#22c55e"   # grüne Candles
+    BULL_COLOR = "#22c55e"   # grÃ¼ne Candles
     BEAR_COLOR = "#ef4444"   # rote Candles
 
     EMA20_COLOR = "#2962FF"
@@ -65,9 +65,9 @@ def create_price_rsi_figure(df, symbol_label, timeframe_label, theme):
         cols=1,
         shared_xaxes=True,
         row_heights=[0.7, 0.3],
-        vertical_spacing=0.03,
+        vertical_spacing=0.04,
         specs=[[{"secondary_y": True}], [{"secondary_y": False}]],
-        subplot_titles=(f"{symbol_label}/USD — {timeframe_label}", "RSI (14)"),
+        subplot_titles=(f"{symbol_label} - {timeframe_label}", "RSI (14)"),
     )
 
     fig.update_layout(
@@ -85,13 +85,19 @@ def create_price_rsi_figure(df, symbol_label, timeframe_label, theme):
         plot_bgcolor=bg,
         paper_bgcolor=bg,
         font=dict(color=fg),
-        margin=dict(l=10, r=10, t=60, b=40),
-        xaxis_rangeslider_visible=False,
+        margin=dict(l=10, r=10, t=60, b=70),
+        xaxis_rangeslider=dict(
+            visible=True,
+            thickness=0.08,
+            bgcolor=bg,
+            bordercolor=grid,
+            borderwidth=1,
+        ),
     )
 
     # --- OBERES PANEL: BOLLINGER + PRICE + VOLUME ---
 
-    # 1) Bollinger-Band (Fläche + Linien)
+    # 1) Bollinger-Band (FlÃ¤che + Linien)
     has_bb = {"bb_up", "bb_lo", "bb_mid"}.issubset(df.columns)
 
     bb_up_f = bb_lo_f = bb_mid_f = None
@@ -100,7 +106,7 @@ def create_price_rsi_figure(df, symbol_label, timeframe_label, theme):
         bb_lo_f = df["bb_lo"].bfill().ffill()
         bb_mid_f = df["bb_mid"].bfill().ffill()
 
-        # Fläche: erst untere Linie (unsichtbar), dann obere mit fill='tonexty'
+        # FlÃ¤che: erst untere Linie (unsichtbar), dann obere mit fill='tonexty'
         fig.add_trace(
             go.Scatter(
                 x=df.index,
@@ -173,7 +179,7 @@ def create_price_rsi_figure(df, symbol_label, timeframe_label, theme):
             secondary_y=False,
         )
 
-    # 2) Candles (liegen über dem Band)
+    # 2) Candles (liegen Ã¼ber dem Band)
     fig.add_trace(
         go.Candlestick(
             x=df.index,
@@ -320,7 +326,7 @@ def create_price_rsi_figure(df, symbol_label, timeframe_label, theme):
 
 
 def create_signal_history_figure(df, allowed, theme):
-    """Signal-Historie als eigener Chart – mit Begründung im Hover."""
+    """Signal-Historie als eigener Chart â€“ mit BegrÃ¼ndung im Hover."""
     fig = go.Figure()
 
     # y-Level ohne HOLD
@@ -393,3 +399,5 @@ def create_signal_history_figure(df, allowed, theme):
     )
 
     return fig
+
+
