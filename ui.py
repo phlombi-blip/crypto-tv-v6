@@ -937,7 +937,8 @@ def main():
                             x0 = df.index[i0o] if i0o < len(df.index) else df.index[-1]
                             x1 = df.index[i1o] if i1o < len(df.index) else df.index[-1]
                             # verlängern um 15% der Strecke nach rechts
-                            extend = max(1, int((i1o - i0o) * 0.15))
+                            # Profi-Style: Trendlinie noch ein Stück weiterziehen (breitere Projektion)
+                            extend = max(3, int((i1o - i0o) * 0.5))
                             x_ext = df.index[min(len(df.index) - 1, i1o + extend)]
                             fig.add_shape(type="line", x0=x0, y0=y0, x1=x1, y1=y1, xref="x", yref="y", line=dict(color=line_color, width=2))
                             fig.add_shape(type="line", x0=x1, y0=y1, x1=x_ext, y1=y1, xref="x", yref="y", line=dict(color=line_color, width=1, dash="dot"))
