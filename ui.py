@@ -998,23 +998,38 @@ def main():
                             font=dict(color=line_color, size=12),
                             bgcolor="rgba(255,255,255,0.1)",
                         )
-                    # durchgezogene Resistance-Linie aus naechstem Swing-High oberhalb des aktuellen Close
+                    # Support/Resistance aus lokalen Swing-Punkten (wie es ein Trader erwarten wuerde)
                     if not df_pat.empty:
                         highs_ser = df_pat["high"].reset_index(drop=True)
+                        lows_ser = df_pat["low"].reset_index(drop=True)
                         w = 3
                         swing_highs = []
+                        swing_lows = []
                         for i in range(w, len(highs_ser) - w):
-                            left = highs_ser.iloc[i - w : i]
-                            right = highs_ser.iloc[i + 1 : i + 1 + w]
-                            v = highs_ser.iloc[i]
-                            if v == max(highs_ser.iloc[i - w : i + w + 1]) and v > left.max() and v > right.max():
+                            # Hoch
+                            left_h = highs_ser.iloc[i - w : i]
+                            right_h = highs_ser.iloc[i + 1 : i + 1 + w]
+                            v_h = highs_ser.iloc[i]
+                            if v_h == max(highs_ser.iloc[i - w : i + w + 1]) and v_h > left_h.max() and v_h > right_h.max():
                                 swing_highs.append(i)
+                            # Tief
+                            left_l = lows_ser.iloc[i - w : i]
+                            right_l = lows_ser.iloc[i + 1 : i + 1 + w]
+                            v_l = lows_ser.iloc[i]
+                            if v_l == min(lows_ser.iloc[i - w : i + w + 1]) and v_l < left_l.min() and v_l < right_l.min():
+                                swing_lows.append(i)
+
                         current_close = df_pat["close"].iloc[-1]
-                        candidates = [(i, float(highs_ser.iloc[i])) for i in swing_highs if highs_ser.iloc[i] > current_close]
-                        if candidates:
-                            idx_res, y_res = sorted(candidates, key=lambda t: (t[1], -t[0]))[0]  # am naechsten ueber Kurs
-                            x_start = df_pat.index[0]
-                            x_end = df_pat.index[-1]
+                        x_start = df_pat.index[0]
+                        x_end = df_pat.index[-1]
+
+                        # Resistance: naechstes Hoch oberhalb; falls keins, letztes relevantes Hoch
+                        res_candidates = [(i, float(highs_ser.iloc[i])) for i in swing_highs if highs_ser.iloc[i] > current_close]
+                        if not res_candidates and swing_highs:
+                            # fallback: juengstes Swing-High (auch wenn <= close)
+                            res_candidates = [(swing_highs[-1], float(highs_ser.iloc[swing_highs[-1]]))]
+                        if res_candidates:
+                            idx_res, y_res = sorted(res_candidates, key=lambda t: (t[1], -t[0]))[0]
                             fig.add_shape(
                                 type="line",
                                 x0=x_start,
@@ -1023,7 +1038,7 @@ def main():
                                 y1=y_res,
                                 xref="x",
                                 yref="y",
-                                line=dict(color="#f6465d", width=2.5, dash="dot"),  # TradingView-rot angelehnt
+                                line=dict(color="#f6465d", width=2.5, dash="dot"),
                             )
                             fig.add_annotation(
                                 x=x_start,
@@ -1031,6 +1046,31 @@ def main():
                                 text="Resistance",
                                 showarrow=False,
                                 font=dict(color="#7c2d12", size=11),
+                                bgcolor="rgba(255,255,255,0.9)",
+                            )
+
+                        # Support: naechstes Tief unterhalb; falls keins, letztes relevantes Tief
+                        sup_candidates = [(i, float(lows_ser.iloc[i])) for i in swing_lows if lows_ser.iloc[i] < current_close]
+                        if not sup_candidates and swing_lows:
+                            sup_candidates = [(swing_lows[-1], float(lows_ser.iloc[swing_lows[-1]]))]
+                        if sup_candidates:
+                            idx_sup, y_sup = sorted(sup_candidates, key=lambda t: (-t[1], -t[0]))[0]
+                            fig.add_shape(
+                                type="line",
+                                x0=x_start,
+                                y0=y_sup,
+                                x1=x_end,
+                                y1=y_sup,
+                                xref="x",
+                                yref="y",
+                                line=dict(color="#22c55e", width=2.5, dash="dot"),
+                            )
+                            fig.add_annotation(
+                                x=x_start,
+                                y=y_sup,
+                                text="Support",
+                                showarrow=False,
+                                font=dict(color="#14532d", size=11),
                                 bgcolor="rgba(255,255,255,0.9)",
                             )
                     # Heller Hintergrund erzwingen (speziell für Mobile, damit schwarze Trendlinien gut sichtbar sind)
@@ -1044,6 +1084,7 @@ def main():
                         font=dict(color="#111827"),
                         xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(color="#111827")),
                         yaxis=dict(showgrid=True, gridcolor="#e5e7eb", zeroline=False, tickfont=dict(color="#111827")),
+                        dragmode="zoom",  # Pinch/Zoom als Default, wie TradingView
                     )
                     fig.update_yaxes(autorange=True)
                     st.plotly_chart(
@@ -1054,6 +1095,7 @@ def main():
                     )
                 else:
                     fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
+                    fig_price_rsi.update_layout(dragmode="zoom")
                     st.plotly_chart(
                         fig_price_rsi,
                         use_container_width=True,
