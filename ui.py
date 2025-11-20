@@ -946,15 +946,6 @@ def main():
             # Price-Chart mit optionalem Pattern-Overlay (Top-1)
             if not df.empty:
                 show_overlay = st.toggle("Pattern-Overlay anzeigen (Top 1)", value=False, key=f"overlay_{market}_{symbol_label}_{tf_label}")
-                y_zoom_factor = st.slider(
-                    "Y-Zoom (vertikal strecken)",
-                    min_value=0.4,
-                    max_value=2.0,
-                    value=1.0,
-                    step=0.1,
-                    key=f"y_zoom_{market}_{symbol_label}_{tf_label}",
-                    help="Werte <1 strecken die Kerzen (engerer Range), >1 entspannen die Range.",
-                )
                 df_pat = df.tail(PATTERN_LOOKBACK) if len(df) > PATTERN_LOOKBACK else df
                 pat_overlay = detect_patterns(df_pat) if show_overlay else []
 
@@ -1096,14 +1087,7 @@ def main():
                         yaxis=dict(showgrid=True, gridcolor="#e5e7eb", zeroline=False, tickfont=dict(color="#111827")),
                         dragmode="zoom",  # Pinch/Zoom als Default, wie TradingView
                     )
-                    # Y-Range mit manuellem Zoom-Faktor
-                    if not df_pat.empty:
-                        y_min = df_pat["low"].min()
-                        y_max = df_pat["high"].max()
-                        span = max(y_max - y_min, 1e-9)
-                        mid = (y_min + y_max) / 2
-                        half = (span / 2) * y_zoom_factor
-                        fig.update_yaxes(autorange=False, range=[mid - half, mid + half])
+                    fig.update_yaxes(autorange=True)
                     st.plotly_chart(
                         fig,
                         use_container_width=True,
@@ -1113,14 +1097,7 @@ def main():
                 else:
                     fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
                     fig_price_rsi.update_layout(dragmode="zoom")
-                    # Y-Range der Price-Achse (Row 1) mit Zoom-Faktor
-                    if not df.empty:
-                        y_min = df["low"].min()
-                        y_max = df["high"].max()
-                        span = max(y_max - y_min, 1e-9)
-                        mid = (y_min + y_max) / 2
-                        half = (span / 2) * y_zoom_factor
-                        fig_price_rsi.update_yaxes(autorange=False, range=[mid - half, mid + half], row=1, col=1, secondary_y=False)
+                    fig_price_rsi.update_yaxes(autorange=True, row=1, col=1, secondary_y=False)
                     st.plotly_chart(
                         fig_price_rsi,
                         use_container_width=True,
