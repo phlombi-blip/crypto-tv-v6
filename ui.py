@@ -945,6 +945,15 @@ def main():
                 pat_overlay = detect_patterns(df_pat) if show_overlay else []
 
                 if show_overlay:
+                    y_pad_pct = st.slider(
+                        "Vertikales Zoom-Padding",
+                        min_value=0,
+                        max_value=80,
+                        value=15,
+                        step=5,
+                        key=f"y_pad_{market}_{symbol_label}_{tf_label}",
+                        help="Erhöhe das Padding, um die Kerzen wie bei TradingView vertikal zu strecken.",
+                    )
                     # Nur Kerzen + Overlay, ohne EMA/BB
                     fig = go.Figure()
                     fig.add_candlestick(
@@ -1005,6 +1014,13 @@ def main():
                         xaxis=dict(showgrid=False),
                         yaxis=dict(showgrid=True, gridcolor="#e5e7eb"),
                     )
+                    # Y-Range mit variablem Padding für manuelles Strecken
+                    if not df_pat.empty:
+                        y_min = df_pat["low"].min()
+                        y_max = df_pat["high"].max()
+                        span = max(y_max - y_min, 1e-9)
+                        pad = span * (y_pad_pct / 100)
+                        fig.update_yaxes(range=[y_min - pad, y_max + pad])
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
