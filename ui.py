@@ -97,6 +97,10 @@ MARKETS = {
             "SMI": "^SSMI",
         },
         "timeframes": {
+            "1m": "1m",
+            "5m": "5m",
+            "15m": "15m",
+            "4h": "4h",
             "1d": "1d",
             "1h": "1h",
         },
@@ -945,12 +949,6 @@ def main():
                 pat_overlay = detect_patterns(df_pat) if show_overlay else []
 
                 if show_overlay:
-                    show_resistance = st.checkbox(
-                        "Naechste Resistance anzeigen",
-                        value=False,
-                        key=f"resistance_{market}_{symbol_label}_{tf_label}",
-                        help="Zeigt das naechste relevante Swing-High als horizontale Linie.",
-                    )
                     # Nur Kerzen + Overlay, ohne EMA/BB
                     fig = go.Figure()
                     fig.add_candlestick(
@@ -997,11 +995,11 @@ def main():
                             y=top.overlay_lines[0][1] if top.overlay_lines else df_pat["close"].iloc[-1],
                             text=f"{top.name} ({top.score}/100)",
                             showarrow=False,
-                            font=dict(color=line_color, size=12),
-                            bgcolor="rgba(255,255,255,0.1)",
-                        )
-                    # optionale Resistance-Linie aus naechstem Swing-High oberhalb des aktuellen Close
-                    if show_resistance and not df_pat.empty:
+                        font=dict(color=line_color, size=12),
+                        bgcolor="rgba(255,255,255,0.1)",
+                    )
+                    # durchgezogene Resistance-Linie aus naechstem Swing-High oberhalb des aktuellen Close
+                    if not df_pat.empty:
                         highs_ser = df_pat["high"].reset_index(drop=True)
                         w = 3
                         swing_highs = []
@@ -1015,20 +1013,20 @@ def main():
                         candidates = [(i, float(highs_ser.iloc[i])) for i in swing_highs if highs_ser.iloc[i] > current_close]
                         if candidates:
                             idx_res, y_res = sorted(candidates, key=lambda t: (t[1], -t[0]))[0]  # am naechsten ueber Kurs
-                            x_res = df_pat.index[idx_res]
+                            x_start = df_pat.index[0]
                             x_end = df_pat.index[-1]
                             fig.add_shape(
                                 type="line",
-                                x0=x_res,
+                                x0=x_start,
                                 y0=y_res,
                                 x1=x_end,
                                 y1=y_res,
                                 xref="x",
                                 yref="y",
-                                line=dict(color="#f97316", width=2.5, dash="dot"),  # orange für bessere Sichtbarkeit
+                                line=dict(color="#f6465d", width=2.5, dash="dot"),  # TradingView-rot angelehnt
                             )
                             fig.add_annotation(
-                                x=x_res,
+                                x=x_start,
                                 y=y_res,
                                 text="Resistance",
                                 showarrow=False,
