@@ -995,9 +995,9 @@ def main():
                             y=top.overlay_lines[0][1] if top.overlay_lines else df_pat["close"].iloc[-1],
                             text=f"{top.name} ({top.score}/100)",
                             showarrow=False,
-                        font=dict(color=line_color, size=12),
-                        bgcolor="rgba(255,255,255,0.1)",
-                    )
+                            font=dict(color=line_color, size=12),
+                            bgcolor="rgba(255,255,255,0.1)",
+                        )
                     # durchgezogene Resistance-Linie aus naechstem Swing-High oberhalb des aktuellen Close
                     if not df_pat.empty:
                         highs_ser = df_pat["high"].reset_index(drop=True)
