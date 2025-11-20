@@ -945,6 +945,12 @@ def main():
                 pat_overlay = detect_patterns(df_pat) if show_overlay else []
 
                 if show_overlay:
+                    show_resistance = st.checkbox(
+                        "Naechste Resistance anzeigen",
+                        value=False,
+                        key=f"resistance_{market}_{symbol_label}_{tf_label}",
+                        help="Zeigt das naechste relevante Swing-High als horizontale Linie.",
+                    )
                     zoom_factor = st.slider(
                         "Vertikales Zoom (TradingView-Style)",
                         min_value=0.4,
@@ -1003,6 +1009,41 @@ def main():
                             font=dict(color=line_color, size=12),
                             bgcolor="rgba(255,255,255,0.1)",
                         )
+                    # optionale Resistance-Linie aus naechstem Swing-High oberhalb des aktuellen Close
+                    if show_resistance and not df_pat.empty:
+                        highs_ser = df_pat["high"].reset_index(drop=True)
+                        w = 3
+                        swing_highs = []
+                        for i in range(w, len(highs_ser) - w):
+                            left = highs_ser.iloc[i - w : i]
+                            right = highs_ser.iloc[i + 1 : i + 1 + w]
+                            v = highs_ser.iloc[i]
+                            if v == max(highs_ser.iloc[i - w : i + w + 1]) and v > left.max() and v > right.max():
+                                swing_highs.append(i)
+                        current_close = df_pat["close"].iloc[-1]
+                        candidates = [(i, float(highs_ser.iloc[i])) for i in swing_highs if highs_ser.iloc[i] > current_close]
+                        if candidates:
+                            idx_res, y_res = sorted(candidates, key=lambda t: (t[1], -t[0]))[0]  # am naechsten ueber Kurs
+                            x_res = df_pat.index[idx_res]
+                            x_end = df_pat.index[-1]
+                            fig.add_shape(
+                                type="line",
+                                x0=x_res,
+                                y0=y_res,
+                                x1=x_end,
+                                y1=y_res,
+                                xref="x",
+                                yref="y",
+                                line=dict(color="#b91c1c", width=2, dash="dash"),
+                            )
+                            fig.add_annotation(
+                                x=x_res,
+                                y=y_res,
+                                text="Resistance",
+                                showarrow=False,
+                                font=dict(color="#b91c1c", size=11),
+                                bgcolor="rgba(255,255,255,0.8)",
+                            )
                     # Heller Hintergrund erzwingen (speziell für Mobile, damit schwarze Trendlinien gut sichtbar sind)
                     fig.update_layout(
                         margin=dict(l=10, r=10, t=30, b=10),
