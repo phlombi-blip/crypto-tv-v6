@@ -278,7 +278,8 @@ def fetch_yf_ohlc(symbol: str, interval: str, years: float = YEARS_HISTORY) -> p
 
     intraday = interval.lower() in {"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"}
     if intraday:
-        period = "60d"  # YF-Restriktion: Intraday max. ~60 Tage
+        # YF-Restriktionen: 1m nur ~7 Tage, andere Intraday max. ~60 Tage
+        period = "7d" if interval.lower() == "1m" else "60d"
     else:
         days = max(int(years * 365), 1)
         period = "max" if days >= 3650 else f"{days}d"
@@ -1020,8 +1021,6 @@ def main():
                                 swing_lows.append(i)
 
                         current_close = df_pat["close"].iloc[-1]
-                        x_start = df_pat.index[0]
-                        x_end = df_pat.index[-1]
 
                         # Resistance: naechstes Hoch oberhalb; falls keins, letztes relevantes Hoch
                         res_candidates = [(i, float(highs_ser.iloc[i])) for i in swing_highs if highs_ser.iloc[i] > current_close]
@@ -1032,16 +1031,17 @@ def main():
                             idx_res, y_res = sorted(res_candidates, key=lambda t: (t[1], -t[0]))[0]
                             fig.add_shape(
                                 type="line",
-                                x0=x_start,
+                                x0=0,
                                 y0=y_res,
-                                x1=x_end,
+                                x1=1,
                                 y1=y_res,
-                                xref="x",
+                                xref="paper",  # volle Breite
                                 yref="y",
                                 line=dict(color="#f6465d", width=2.5, dash="dot"),
                             )
                             fig.add_annotation(
-                                x=x_start,
+                                xref="paper",
+                                x=0.01,
                                 y=y_res,
                                 text="Resistance",
                                 showarrow=False,
@@ -1057,16 +1057,17 @@ def main():
                             idx_sup, y_sup = sorted(sup_candidates, key=lambda t: (-t[1], -t[0]))[0]
                             fig.add_shape(
                                 type="line",
-                                x0=x_start,
+                                x0=0,
                                 y0=y_sup,
-                                x1=x_end,
+                                x1=1,
                                 y1=y_sup,
-                                xref="x",
+                                xref="paper",  # volle Breite
                                 yref="y",
                                 line=dict(color="#22c55e", width=2.5, dash="dot"),
                             )
                             fig.add_annotation(
-                                x=x_start,
+                                xref="paper",
+                                x=0.01,
                                 y=y_sup,
                                 text="Support",
                                 showarrow=False,
