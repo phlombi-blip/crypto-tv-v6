@@ -951,15 +951,6 @@ def main():
                         key=f"resistance_{market}_{symbol_label}_{tf_label}",
                         help="Zeigt das naechste relevante Swing-High als horizontale Linie.",
                     )
-                    zoom_factor = st.slider(
-                        "Vertikales Zoom (TradingView-Style)",
-                        min_value=0.4,
-                        max_value=2.0,
-                        value=1.0,
-                        step=0.1,
-                        key=f"y_zoom_{market}_{symbol_label}_{tf_label}",
-                        help="Werte < 1 strecken die Kerzen vertikal (weniger Range), > 1 entspannen (mehr Range).",
-                    )
                     # Nur Kerzen + Overlay, ohne EMA/BB
                     fig = go.Figure()
                     fig.add_candlestick(
@@ -1034,15 +1025,15 @@ def main():
                                 y1=y_res,
                                 xref="x",
                                 yref="y",
-                                line=dict(color="#b91c1c", width=2, dash="dash"),
+                                line=dict(color="#f97316", width=2.5, dash="dot"),  # orange für bessere Sichtbarkeit
                             )
                             fig.add_annotation(
                                 x=x_res,
                                 y=y_res,
                                 text="Resistance",
                                 showarrow=False,
-                                font=dict(color="#b91c1c", size=11),
-                                bgcolor="rgba(255,255,255,0.8)",
+                                font=dict(color="#7c2d12", size=11),
+                                bgcolor="rgba(255,255,255,0.9)",
                             )
                     # Heller Hintergrund erzwingen (speziell für Mobile, damit schwarze Trendlinien gut sichtbar sind)
                     fig.update_layout(
@@ -1056,14 +1047,7 @@ def main():
                         xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(color="#111827")),
                         yaxis=dict(showgrid=True, gridcolor="#e5e7eb", zeroline=False, tickfont=dict(color="#111827")),
                     )
-                    # Y-Range mit manueller Zoom-Steuerung
-                    if not df_pat.empty:
-                        y_min = df_pat["low"].min()
-                        y_max = df_pat["high"].max()
-                        span = max(y_max - y_min, 1e-9)
-                        mid = (y_min + y_max) / 2
-                        half = (span / 2) * zoom_factor  # kleiner Faktor => engerer Bereich => gestreckte Kerzen
-                        fig.update_yaxes(autorange=False, range=[mid - half, mid + half])
+                    fig.update_yaxes(autorange=True)
                     st.plotly_chart(
                         fig,
                         use_container_width=True,
