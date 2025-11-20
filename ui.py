@@ -994,7 +994,17 @@ def main():
                             font=dict(color=line_color, size=12),
                             bgcolor="rgba(255,255,255,0.1)",
                         )
-                    fig.update_layout(margin=dict(l=10, r=10, t=30, b=10), xaxis_title="", yaxis_title="Price")
+                    # Heller Hintergrund erzwingen (speziell für Mobile, damit schwarze Trendlinien gut sichtbar sind)
+                    fig.update_layout(
+                        margin=dict(l=10, r=10, t=30, b=10),
+                        xaxis_title="",
+                        yaxis_title="Price",
+                        plot_bgcolor="white",
+                        paper_bgcolor="white",
+                        font=dict(color="#111827"),
+                        xaxis=dict(showgrid=False),
+                        yaxis=dict(showgrid=True, gridcolor="#e5e7eb"),
+                    )
                     st.plotly_chart(fig, use_container_width=True)
                 else:
                     fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
