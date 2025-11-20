@@ -945,14 +945,14 @@ def main():
                 pat_overlay = detect_patterns(df_pat) if show_overlay else []
 
                 if show_overlay:
-                    y_pad_pct = st.slider(
-                        "Vertikales Zoom-Padding",
-                        min_value=0,
-                        max_value=80,
-                        value=15,
-                        step=5,
-                        key=f"y_pad_{market}_{symbol_label}_{tf_label}",
-                        help="Erhöhe das Padding, um die Kerzen wie bei TradingView vertikal zu strecken.",
+                    zoom_factor = st.slider(
+                        "Vertikales Zoom (TradingView-Style)",
+                        min_value=0.4,
+                        max_value=2.0,
+                        value=1.0,
+                        step=0.1,
+                        key=f"y_zoom_{market}_{symbol_label}_{tf_label}",
+                        help="Werte < 1 strecken die Kerzen vertikal (weniger Range), > 1 entspannen (mehr Range).",
                     )
                     # Nur Kerzen + Overlay, ohne EMA/BB
                     fig = go.Figure()
@@ -1010,21 +1010,32 @@ def main():
                         yaxis_title="Price",
                         plot_bgcolor="white",
                         paper_bgcolor="white",
+                        template="plotly_white",
                         font=dict(color="#111827"),
-                        xaxis=dict(showgrid=False),
-                        yaxis=dict(showgrid=True, gridcolor="#e5e7eb"),
+                        xaxis=dict(showgrid=False, zeroline=False, tickfont=dict(color="#111827")),
+                        yaxis=dict(showgrid=True, gridcolor="#e5e7eb", zeroline=False, tickfont=dict(color="#111827")),
                     )
-                    # Y-Range mit variablem Padding für manuelles Strecken
+                    # Y-Range mit manueller Zoom-Steuerung
                     if not df_pat.empty:
                         y_min = df_pat["low"].min()
                         y_max = df_pat["high"].max()
                         span = max(y_max - y_min, 1e-9)
-                        pad = span * (y_pad_pct / 100)
-                        fig.update_yaxes(range=[y_min - pad, y_max + pad])
-                    st.plotly_chart(fig, use_container_width=True)
+                        mid = (y_min + y_max) / 2
+                        half = (span / 2) * zoom_factor  # kleiner Faktor => engerer Bereich => gestreckte Kerzen
+                        fig.update_yaxes(autorange=False, range=[mid - half, mid + half])
+                    st.plotly_chart(
+                        fig,
+                        use_container_width=True,
+                        theme=None,  # eigenes helles Theme erzwingen (auch mobil)
+                        config={"scrollZoom": True},  # Y-Achse via Maus/Scroll/Pinch zoombar wie TradingView
+                    )
                 else:
                     fig_price_rsi = create_price_rsi_figure(df, symbol_label, tf_label, theme)
-                    st.plotly_chart(fig_price_rsi, use_container_width=True)
+                    st.plotly_chart(
+                        fig_price_rsi,
+                        use_container_width=True,
+                        config={"scrollZoom": True},  # Hover an der Y-Achse + Scroll = vertikales Strecken/Kürzen
+                    )
             else:
                 st.warning("Keine Daten im gewählten Zeitraum – Zeitraum anpassen oder API/Internet prüfen.")
 
