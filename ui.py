@@ -70,7 +70,7 @@ PATTERN_LOOKBACK_BY_TF = {
     "15m": 300,
     "1h": 300,
     "4h": 250,
-    "1d": 150,
+    "1d": 120,
 }
 # Wie frisch muss das Pattern sein? Max. Alter in Kerzen (bezogen auf das Lookback-Segment)
 PATTERN_FRESH_BARS_BY_TF = {
@@ -79,7 +79,7 @@ PATTERN_FRESH_BARS_BY_TF = {
     "15m": 80,
     "1h": 60,
     "4h": 60,
-    "1d": 20,  # Daily: nur Muster der letzten ~3 Wochen zulassen
+    "1d": 10,  # Daily: nur sehr frische Muster zulassen
 }
 
 # Wie viele Jahre Historie sollen ungefähr geladen werden?
@@ -976,8 +976,17 @@ def main():
                     last_idx = max(int(i1) for (_, _, i1, _) in p.overlay_lines)
                     # dynamische Frische-Schwelle: mindestens 10 Bars, maximal 20% des Lookbacks, begrenzt durch fresh_cutoff
                     fresh_bars = max(10, min(fresh_cutoff, int(lb * 0.2)))
-                    if last_idx >= len(df_pat) - fresh_bars:
-                        pat_overlay.append(p)
+                    age = len(df_pat) - 1 - last_idx
+                    if age > fresh_bars:
+                        continue
+                    # Score-Decay für ältere Treffer innerhalb des Fensters
+                    decay_factor = max(0.2, 1 - age / max(fresh_bars, 1))
+                    try:
+                        p.score = int(p.score * decay_factor)
+                    except Exception:
+                        pass
+                    pat_overlay.append(p)
+                pat_overlay.sort(key=lambda x: x.score, reverse=True)
 
                 if show_overlay:
                     # Nur Kerzen + Overlay, ohne EMA/BB
@@ -1052,11 +1061,8 @@ def main():
 
                         current_close = df_pat["close"].iloc[-1]
 
-                        # Resistance: naechstes Hoch oberhalb; falls keins, letztes relevantes Hoch
+                        # Resistance: nur naechstes Hoch oberhalb des aktuellen Close
                         res_candidates = [(i, float(highs_ser.iloc[i])) for i in swing_highs if highs_ser.iloc[i] > current_close]
-                        if not res_candidates and swing_highs:
-                            # fallback: juengstes Swing-High (auch wenn <= close)
-                            res_candidates = [(swing_highs[-1], float(highs_ser.iloc[swing_highs[-1]]))]
                         if res_candidates:
                             idx_res, y_res = sorted(res_candidates, key=lambda t: (t[1], -t[0]))[0]
                             fig.add_shape(
@@ -1079,10 +1085,8 @@ def main():
                                 bgcolor="rgba(255,255,255,0.9)",
                             )
 
-                        # Support: naechstes Tief unterhalb; falls keins, letztes relevantes Tief
+                        # Support: nur naechstes Tief unterhalb des aktuellen Close
                         sup_candidates = [(i, float(lows_ser.iloc[i])) for i in swing_lows if lows_ser.iloc[i] < current_close]
-                        if not sup_candidates and swing_lows:
-                            sup_candidates = [(swing_lows[-1], float(lows_ser.iloc[swing_lows[-1]]))]
                         if sup_candidates:
                             idx_sup, y_sup = sorted(sup_candidates, key=lambda t: (-t[1], -t[0]))[0]
                             fig.add_shape(
