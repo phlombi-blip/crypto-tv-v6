@@ -79,7 +79,7 @@ PATTERN_FRESH_BARS_BY_TF = {
     "15m": 80,
     "1h": 60,
     "4h": 60,
-    "1d": 50,
+    "1d": 20,  # Daily: nur Muster der letzten ~3 Wochen zulassen
 }
 
 # Wie viele Jahre Historie sollen ungefähr geladen werden?
@@ -974,7 +974,9 @@ def main():
                     if not p.overlay_lines:
                         continue
                     last_idx = max(int(i1) for (_, _, i1, _) in p.overlay_lines)
-                    if last_idx >= len(df_pat) - fresh_cutoff:
+                    # dynamische Frische-Schwelle: mindestens 10 Bars, maximal 20% des Lookbacks, begrenzt durch fresh_cutoff
+                    fresh_bars = max(10, min(fresh_cutoff, int(lb * 0.2)))
+                    if last_idx >= len(df_pat) - fresh_bars:
                         pat_overlay.append(p)
 
                 if show_overlay:
