@@ -62,7 +62,25 @@ TIMEFRAMES = {
 
 DEFAULT_TIMEFRAME = "1d"
 VALID_SIGNALS = ["STRONG BUY", "BUY", "HOLD", "SELL", "STRONG SELL"]
-PATTERN_LOOKBACK = 400
+PATTERN_LOOKBACK = 400  # Fallback
+# Pro-Timeframe spezifischer Lookback für frischere Muster
+PATTERN_LOOKBACK_BY_TF = {
+    "1m": 300,
+    "5m": 300,
+    "15m": 300,
+    "1h": 300,
+    "4h": 250,
+    "1d": 150,
+}
+# Wie frisch muss das Pattern sein? Max. Alter in Kerzen (bezogen auf das Lookback-Segment)
+PATTERN_FRESH_BARS_BY_TF = {
+    "1m": 100,
+    "5m": 80,
+    "15m": 80,
+    "1h": 60,
+    "4h": 60,
+    "1d": 50,
+}
 
 # Wie viele Jahre Historie sollen ungefähr geladen werden?
 YEARS_HISTORY = 3.0
@@ -946,8 +964,18 @@ def main():
             # Price-Chart mit optionalem Pattern-Overlay (Top-1)
             if not df.empty:
                 show_overlay = st.toggle("Pattern-Overlay anzeigen (Top 1)", value=False, key=f"overlay_{market}_{symbol_label}_{tf_label}")
-                df_pat = df.tail(PATTERN_LOOKBACK) if len(df) > PATTERN_LOOKBACK else df
-                pat_overlay = detect_patterns(df_pat) if show_overlay else []
+                tf_lookup = tf_label.lower()
+                lb = PATTERN_LOOKBACK_BY_TF.get(tf_lookup, PATTERN_LOOKBACK)
+                fresh_cutoff = PATTERN_FRESH_BARS_BY_TF.get(tf_lookup, 50)
+                df_pat = df.tail(lb) if len(df) > lb else df
+                pat_overlay_raw = detect_patterns(df_pat) if show_overlay else []
+                pat_overlay = []
+                for p in pat_overlay_raw:
+                    if not p.overlay_lines:
+                        continue
+                    last_idx = max(int(i1) for (_, _, i1, _) in p.overlay_lines)
+                    if last_idx >= len(df_pat) - fresh_cutoff:
+                        pat_overlay.append(p)
 
                 if show_overlay:
                     # Nur Kerzen + Overlay, ohne EMA/BB
